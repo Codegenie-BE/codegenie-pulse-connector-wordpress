@@ -69,7 +69,7 @@ final class Codegenie_Pulse_Plugin {
 			$admin->register_hooks();
 		}
 
-		if ( $this->options->has_readable_dsn() && $this->options->get( 'automatic_error_reporting', 1 ) ) {
+		if ( $this->options->has_readable_dsn() && Codegenie_Pulse_Options::CAPTURE_OFF !== $this->options->capture_mode() ) {
 			$this->reporter->register_hooks();
 		}
 
@@ -97,4 +97,3 @@ final class Codegenie_Pulse_Plugin {
 	/** Prevent cloning. */
 	private function __clone() {}
 }
-

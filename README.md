@@ -15,12 +15,28 @@ De deployment-URL wordt lokaal afgeleid van de fout-DSN. Dezelfde 64 tekens lang
 ## Ondersteunde automatische gebeurtenissen
 
 * fatale PHP shutdown errors
+* onverwerkte exceptions die als fatale PHP-fout eindigen
+* PHP warnings in de modus Uitgebreid of Debug
+* PHP notices, strict- en deprecated-meldingen in de modus Debug
 * `wp_mail_failed`, zonder ontvangers, headers of berichtinhoud
 * WordPress REST-responses met HTTP-status 500 tot en met 599
 * WordPress core updates
 * plugin- en thema-updates
 * pluginactivatie en -deactivatie
 * themawissels
+
+## PHP-foutcapturemodi
+
+| Modus | Automatisch gerapporteerd | Aanbevolen gebruik |
+| --- | --- | --- |
+| Uitgeschakeld | Geen automatische PHP- of WordPress-signalen | Alleen expliciete helper-calls |
+| Productie | Fatale fouten, onverwerkte exceptions, ingeschakelde WordPress-signalen | Productie, aanbevolen |
+| Uitgebreid | Productie plus `E_WARNING` en `E_USER_WARNING` | Tijdelijke extra diagnose |
+| Debug | Uitgebreid plus notices, strict en deprecated | Alleen tijdelijk op staging |
+
+De connector leest geen bestaand `debug.log`- of PHP `error_log`-bestand. Alleen nieuwe fouten die na activatie plaatsvinden en door de PHP `error_reporting`-instelling zijn geactiveerd worden onderschept. De bestaande PHP error handler en normale PHP-logging blijven behouden.
+
+Om eventstorms te beperken wordt een identieke niet-fatale fout standaard maximaal één keer per minuut verzonden. Daarnaast gelden maximaal tien unieke niet-fatale events per request.
 
 ## Expliciet rapporteren vanuit eigen code
 
@@ -51,6 +67,18 @@ Gebruik alleen privacy-veilige context. De connector verwijdert bekende gevoelig
 ```php
 add_filter( 'codegenie_pulse_http_timeout', function () {
     return 5.0;
+} );
+```
+
+De niet-fatale sampling en requestlimiet kunnen gecontroleerd worden aangepast:
+
+```php
+add_filter( 'codegenie_pulse_non_fatal_sample_seconds', function () {
+    return 120;
+} );
+
+add_filter( 'codegenie_pulse_non_fatal_per_request_limit', function () {
+    return 5;
 } );
 ```
 
@@ -93,5 +121,8 @@ add_action( 'codegenie_pulse_delivery_failed', function ( $kind, $status, $code 
 * URL-querystrings worden verwijderd
 * gevoelige contextsleutels en bekende secrets in tekst worden lokaal geredigeerd
 * lokale backoff na netwerk-, limiet- en authenticatieproblemen
-* uninstall verwijdert instellingen, status en backoff-data
-
+* sampling van identieke warnings en notices over requests heen
+* maximaal tien unieke niet-fatale events per request, standaard
+* bestaand PHP error handler- en loggedrag blijft behouden
+* geen uitlezing of import van bestaande logbestanden
+* uninstall verwijdert instellingen, status, backoff- en samplingdata

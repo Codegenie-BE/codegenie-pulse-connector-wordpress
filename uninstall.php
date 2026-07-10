@@ -15,6 +15,7 @@ function codegenie_pulse_connector_delete_site_data() {
 	delete_transient( 'codegenie_pulse_connector_backoff' );
 	delete_transient( 'codegenie_pulse_connector_backoff_error' );
 	delete_transient( 'codegenie_pulse_connector_backoff_deployment' );
+	delete_transient( 'codegenie_pulse_connector_non_fatal_samples' );
 }
 
 if ( is_multisite() ) {

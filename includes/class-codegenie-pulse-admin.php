@@ -97,6 +97,10 @@ final class Codegenie_Pulse_Admin {
 				<div class="notice notice-error"><p><?php echo esc_html__( 'De opgeslagen DSN kan niet meer worden ontsleuteld. Dit kan gebeuren nadat WordPress salts zijn gewijzigd. Plak de DSN opnieuw.', 'codegenie-pulse-connector' ); ?></p></div>
 			<?php endif; ?>
 
+			<?php if ( Codegenie_Pulse_Options::CAPTURE_DEBUG === $this->options->capture_mode() && function_exists( 'wp_get_environment_type' ) && 'production' === wp_get_environment_type() ) : ?>
+				<div class="notice notice-warning"><p><?php echo esc_html__( 'De capturemodus Debug staat aan op een productieomgeving. Gebruik deze modus alleen tijdelijk omdat notices en deprecated-meldingen extra events kunnen veroorzaken.', 'codegenie-pulse-connector' ); ?></p></div>
+			<?php endif; ?>
+
 			<div class="card" style="max-width: 100%;">
 				<h2><?php echo esc_html__( 'Verbindingsstatus', 'codegenie-pulse-connector' ); ?></h2>
 				<p><strong><?php echo esc_html( $status['label'] ); ?></strong></p>
@@ -143,11 +147,24 @@ final class Codegenie_Pulse_Admin {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><?php echo esc_html__( 'Automatische rapportage', 'codegenie-pulse-connector' ); ?></th>
+						<th scope="row"><label for="codegenie-pulse-capture-mode"><?php echo esc_html__( 'PHP-foutcapture', 'codegenie-pulse-connector' ); ?></label></th>
 						<td>
-							<label><input type="checkbox" name="automatic_error_reporting" value="1" <?php checked( ! empty( $settings['automatic_error_reporting'] ) ); ?>> <?php echo esc_html__( 'Fatale PHP-fouten automatisch rapporteren', 'codegenie-pulse-connector' ); ?></label><br>
+							<select id="codegenie-pulse-capture-mode" name="error_capture_mode">
+								<option value="off" <?php selected( Codegenie_Pulse_Options::CAPTURE_OFF, $settings['error_capture_mode'] ); ?>><?php echo esc_html__( 'Uitgeschakeld', 'codegenie-pulse-connector' ); ?></option>
+								<option value="production" <?php selected( Codegenie_Pulse_Options::CAPTURE_PRODUCTION, $settings['error_capture_mode'] ); ?>><?php echo esc_html__( 'Productie, aanbevolen', 'codegenie-pulse-connector' ); ?></option>
+								<option value="extended" <?php selected( Codegenie_Pulse_Options::CAPTURE_EXTENDED, $settings['error_capture_mode'] ); ?>><?php echo esc_html__( 'Uitgebreid', 'codegenie-pulse-connector' ); ?></option>
+								<option value="debug" <?php selected( Codegenie_Pulse_Options::CAPTURE_DEBUG, $settings['error_capture_mode'] ); ?>><?php echo esc_html__( 'Debug, alleen tijdelijk', 'codegenie-pulse-connector' ); ?></option>
+							</select>
+							<p class="description"><?php echo esc_html__( 'Productie rapporteert fatale fouten en onverwerkte exceptions. Uitgebreid voegt PHP warnings toe. Debug voegt ook notices, strict- en deprecated-meldingen toe, voor zover de PHP error_reporting-instelling ze activeert.', 'codegenie-pulse-connector' ); ?></p>
+							<p class="description"><?php echo esc_html__( 'Identieke niet-fatale fouten worden standaard maximaal één keer per minuut verstuurd, met maximaal tien unieke niet-fatale events per request.', 'codegenie-pulse-connector' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php echo esc_html__( 'WordPress-signalen', 'codegenie-pulse-connector' ); ?></th>
+						<td>
 							<label><input type="checkbox" name="capture_mail_failures" value="1" <?php checked( ! empty( $settings['capture_mail_failures'] ) ); ?>> <?php echo esc_html__( 'Mislukte WordPress e-mails rapporteren zonder ontvangers of berichtinhoud', 'codegenie-pulse-connector' ); ?></label><br>
 							<label><input type="checkbox" name="capture_rest_errors" value="1" <?php checked( ! empty( $settings['capture_rest_errors'] ) ); ?>> <?php echo esc_html__( 'REST API serverfouten met status 5xx rapporteren', 'codegenie-pulse-connector' ); ?></label>
+							<p class="description"><?php echo esc_html__( 'Deze signalen worden alleen automatisch verstuurd wanneer PHP-foutcapture niet is uitgeschakeld.', 'codegenie-pulse-connector' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -182,7 +199,7 @@ final class Codegenie_Pulse_Admin {
 
 			<div class="card" style="max-width: 100%;">
 				<h2><?php echo esc_html__( 'Privacy en veiligheid', 'codegenie-pulse-connector' ); ?></h2>
-				<p><?php echo esc_html__( 'De connector verstuurt geen cookies, autorisatieheaders, formulierdata, request bodies, e-mailadressen of WordPress-gebruikers. URL-querystrings en bekende geheimen worden lokaal verwijderd. De connector volgt geen bezoekers en stuurt niets zolang er geen DSN is ingesteld.', 'codegenie-pulse-connector' ); ?></p>
+				<p><?php echo esc_html__( 'De connector verstuurt geen cookies, autorisatieheaders, formulierdata, request bodies, e-mailadressen of WordPress-gebruikers. URL-querystrings en bekende geheimen worden lokaal verwijderd. De connector leest geen bestaand debug.log- of PHP error_log-bestand en stuurt niets zolang er geen DSN is ingesteld.', 'codegenie-pulse-connector' ); ?></p>
 			</div>
 		</div>
 		<?php
@@ -198,7 +215,7 @@ final class Codegenie_Pulse_Admin {
 			array(
 				'verification_token'        => isset( $_POST['verification_token'] ) ? sanitize_text_field( wp_unslash( $_POST['verification_token'] ) ) : '',
 				'dsn'                       => isset( $_POST['dsn'] ) ? trim( wp_unslash( $_POST['dsn'] ) ) : '',
-				'automatic_error_reporting' => isset( $_POST['automatic_error_reporting'] ),
+				'error_capture_mode'         => isset( $_POST['error_capture_mode'] ) ? sanitize_key( wp_unslash( $_POST['error_capture_mode'] ) ) : Codegenie_Pulse_Options::CAPTURE_PRODUCTION,
 				'capture_mail_failures'     => isset( $_POST['capture_mail_failures'] ),
 				'capture_rest_errors'       => isset( $_POST['capture_rest_errors'] ),
 				'deployment_tracking'       => isset( $_POST['deployment_tracking'] ),
@@ -274,6 +291,10 @@ final class Codegenie_Pulse_Admin {
 					'label'   => __( 'Endpoint', 'codegenie-pulse-connector' ),
 					'value'   => $this->options->masked_dsn(),
 					'private' => true,
+				),
+				'capture_mode' => array(
+					'label' => __( 'PHP-foutcapture', 'codegenie-pulse-connector' ),
+					'value' => $this->capture_mode_label(),
 				),
 			),
 		);
@@ -429,5 +450,21 @@ final class Codegenie_Pulse_Admin {
 		$timestamp = strtotime( $value );
 
 		return $timestamp ? wp_date( 'd/m/Y H:i', $timestamp ) : '-';
+	}
+
+	/**
+	 * @return string
+	 */
+	private function capture_mode_label() {
+		switch ( $this->options->capture_mode() ) {
+			case Codegenie_Pulse_Options::CAPTURE_OFF:
+				return __( 'Uitgeschakeld', 'codegenie-pulse-connector' );
+			case Codegenie_Pulse_Options::CAPTURE_EXTENDED:
+				return __( 'Uitgebreid', 'codegenie-pulse-connector' );
+			case Codegenie_Pulse_Options::CAPTURE_DEBUG:
+				return __( 'Debug', 'codegenie-pulse-connector' );
+			default:
+				return __( 'Productie', 'codegenie-pulse-connector' );
+		}
 	}
 }

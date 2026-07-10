@@ -11,6 +11,12 @@ final class Codegenie_Pulse_Options {
 	const OPTION_NAME = 'codegenie_pulse_connector_settings';
 	const STATE_NAME  = 'codegenie_pulse_connector_state';
 	const BACKOFF_KEY = 'codegenie_pulse_connector_backoff';
+	const SAMPLE_KEY  = 'codegenie_pulse_connector_non_fatal_samples';
+
+	const CAPTURE_OFF        = 'off';
+	const CAPTURE_PRODUCTION = 'production';
+	const CAPTURE_EXTENDED   = 'extended';
+	const CAPTURE_DEBUG      = 'debug';
 
 	/** @var Codegenie_Pulse_Secret_Store */
 	private $secret_store;
@@ -32,6 +38,7 @@ final class Codegenie_Pulse_Options {
 			'encrypted_dsn'             => '',
 			'verification_token'        => '',
 			'automatic_error_reporting' => 1,
+			'error_capture_mode'         => self::CAPTURE_PRODUCTION,
 			'capture_mail_failures'     => 1,
 			'capture_rest_errors'       => 1,
 			'deployment_tracking'       => 1,
@@ -55,8 +62,19 @@ final class Codegenie_Pulse_Options {
 	 */
 	public function all() {
 		$value = get_option( self::OPTION_NAME, array() );
+		$value = is_array( $value ) ? $value : array();
 
-		return wp_parse_args( is_array( $value ) ? $value : array(), self::defaults() );
+		if ( ! array_key_exists( 'error_capture_mode', $value ) ) {
+			$value['error_capture_mode'] = array_key_exists( 'automatic_error_reporting', $value ) && empty( $value['automatic_error_reporting'] )
+				? self::CAPTURE_OFF
+				: self::CAPTURE_PRODUCTION;
+		}
+
+		if ( ! in_array( $value['error_capture_mode'], self::capture_modes(), true ) ) {
+			$value['error_capture_mode'] = self::CAPTURE_PRODUCTION;
+		}
+
+		return wp_parse_args( $value, self::defaults() );
 	}
 
 	/**
@@ -100,6 +118,31 @@ final class Codegenie_Pulse_Options {
 	}
 
 	/**
+	 * Return the normalized automatic PHP error capture mode.
+	 *
+	 * @return string
+	 */
+	public function capture_mode() {
+		$mode = (string) $this->get( 'error_capture_mode', self::CAPTURE_PRODUCTION );
+
+		return in_array( $mode, self::capture_modes(), true ) ? $mode : self::CAPTURE_PRODUCTION;
+	}
+
+	/**
+	 * Supported capture modes.
+	 *
+	 * @return string[]
+	 */
+	public static function capture_modes() {
+		return array(
+			self::CAPTURE_OFF,
+			self::CAPTURE_PRODUCTION,
+			self::CAPTURE_EXTENDED,
+			self::CAPTURE_DEBUG,
+		);
+	}
+
+	/**
 	 * Save settings from the admin form.
 	 *
 	 * @param array<string, mixed> $input Settings input.
@@ -120,8 +163,20 @@ final class Codegenie_Pulse_Options {
 			);
 		}
 
+		$capture_mode = isset( $input['error_capture_mode'] )
+			? sanitize_key( (string) $input['error_capture_mode'] )
+			: self::CAPTURE_PRODUCTION;
+
+		if ( ! in_array( $capture_mode, self::capture_modes(), true ) ) {
+			return new WP_Error(
+				'codegenie_pulse_invalid_capture_mode',
+				__( 'De gekozen PHP-foutcapturemodus is ongeldig.', 'codegenie-pulse-connector' )
+			);
+		}
+
 		$next['verification_token']        = $verification_token;
-		$next['automatic_error_reporting'] = empty( $input['automatic_error_reporting'] ) ? 0 : 1;
+		$next['error_capture_mode']         = $capture_mode;
+		$next['automatic_error_reporting'] = self::CAPTURE_OFF === $capture_mode ? 0 : 1;
 		$next['capture_mail_failures']     = empty( $input['capture_mail_failures'] ) ? 0 : 1;
 		$next['capture_rest_errors']       = empty( $input['capture_rest_errors'] ) ? 0 : 1;
 		$next['deployment_tracking']       = empty( $input['deployment_tracking'] ) ? 0 : 1;
@@ -146,11 +201,16 @@ final class Codegenie_Pulse_Options {
 
 		update_option( self::OPTION_NAME, $next, false );
 
+		if ( $next['error_capture_mode'] !== $current['error_capture_mode'] ) {
+			delete_transient( self::SAMPLE_KEY );
+		}
+
 		if ( $next['encrypted_dsn'] !== $current['encrypted_dsn'] ) {
 			delete_option( self::STATE_NAME );
 			delete_transient( self::BACKOFF_KEY );
 			delete_transient( self::BACKOFF_KEY . '_error' );
 			delete_transient( self::BACKOFF_KEY . '_deployment' );
+			delete_transient( self::SAMPLE_KEY );
 		}
 
 		return true;
@@ -170,6 +230,7 @@ final class Codegenie_Pulse_Options {
 		delete_transient( self::BACKOFF_KEY );
 		delete_transient( self::BACKOFF_KEY . '_error' );
 		delete_transient( self::BACKOFF_KEY . '_deployment' );
+		delete_transient( self::SAMPLE_KEY );
 	}
 
 	/**

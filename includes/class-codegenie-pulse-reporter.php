@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Captures a deliberately small set of high-value WordPress failures.
+ * Captures a configurable and bounded set of WordPress and PHP failures.
  */
 final class Codegenie_Pulse_Reporter {
 	/** @var Codegenie_Pulse_Client */
@@ -25,6 +25,12 @@ final class Codegenie_Pulse_Reporter {
 
 	/** @var string|null */
 	private $reserved_memory;
+
+	/** @var callable|null */
+	private $previous_error_handler;
+
+	/** @var int */
+	private $non_fatal_events = 0;
 
 	/**
 	 * @param Codegenie_Pulse_Client   $client   HTTP client.
@@ -46,6 +52,13 @@ final class Codegenie_Pulse_Reporter {
 		$this->reserved_memory = str_repeat( 'x', 262144 );
 		register_shutdown_function( array( $this, 'capture_shutdown_error' ) );
 
+		if ( in_array( $this->options->capture_mode(), array( Codegenie_Pulse_Options::CAPTURE_EXTENDED, Codegenie_Pulse_Options::CAPTURE_DEBUG ), true ) ) {
+			$this->previous_error_handler = set_error_handler(
+				array( $this, 'capture_php_error' ),
+				E_ALL
+			);
+		}
+
 		if ( $this->options->get( 'capture_mail_failures', 1 ) ) {
 			add_action( 'wp_mail_failed', array( $this, 'capture_mail_failure' ) );
 		}
@@ -53,6 +66,51 @@ final class Codegenie_Pulse_Reporter {
 		if ( $this->options->get( 'capture_rest_errors', 1 ) ) {
 			add_filter( 'rest_post_dispatch', array( $this, 'capture_rest_failure' ), 10, 3 );
 		}
+	}
+
+	/**
+	 * Capture selected non-fatal PHP errors while preserving the existing handler.
+	 *
+	 * @param int    $severity PHP error constant.
+	 * @param string $message  Error message.
+	 * @param string $file     Source file.
+	 * @param int    $line     Source line.
+	 * @return bool
+	 */
+	public function capture_php_error( $severity, $message, $file = '', $line = 0 ) {
+		$arguments = func_get_args();
+		$severity  = (int) $severity;
+
+		if ( ! $this->should_capture_non_fatal( $severity ) ) {
+			return $this->delegate_to_previous_handler( $arguments );
+		}
+
+		$level   = $this->level_for_php_error( $severity );
+		$message = $this->redactor->text( $message, 2000 );
+		$payload = array(
+			'level'           => $level,
+			'message'         => '' !== $message ? $message : 'WordPress PHP error',
+			'exception_class' => $this->class_for_php_error( $severity ),
+			'file'            => $this->redactor->path( $file ),
+			'line'            => max( 1, (int) $line ),
+			'url'             => $this->redactor->current_url(),
+			'method'          => $this->request_method(),
+			'context'         => $this->base_context(
+				array(
+					'capture_source' => 'php_error_handler',
+					'php_error_type' => $severity,
+					'php_error_name' => $this->name_for_php_error( $severity ),
+				)
+			),
+		);
+
+		try {
+			$this->send_payload( $payload, false, true );
+		} catch ( Throwable $throwable ) {
+			// Monitoring must never change the website's existing error behavior.
+		}
+
+		return $this->delegate_to_previous_handler( $arguments );
 	}
 
 	/**
@@ -234,22 +292,28 @@ final class Codegenie_Pulse_Reporter {
 	 * @param bool                 $bypass_backoff Bypass local backoff.
 	 * @return array<string, mixed>
 	 */
-	private function send_payload( $payload, $bypass_backoff = false ) {
+	private function send_payload( $payload, $bypass_backoff = false, $non_fatal = false ) {
 		if ( $this->reporting || ! $this->options->has_readable_dsn() ) {
 			return $this->skipped( 'not_available' );
 		}
 
-		$fingerprint = hash(
-			'sha256',
-			(string) $payload['level'] . '|' . (string) $payload['message'] . '|' . (string) ( isset( $payload['file'] ) ? $payload['file'] : '' ) . '|' . (string) ( isset( $payload['line'] ) ? $payload['line'] : '' )
-		);
+		$fingerprint = $this->payload_fingerprint( $payload );
 
 		if ( isset( $this->request_fingerprints[ $fingerprint ] ) ) {
 			return $this->skipped( 'duplicate_in_request' );
 		}
 
+		if ( $non_fatal && $this->was_recently_sampled( $fingerprint ) ) {
+			return $this->skipped( 'recently_sampled' );
+		}
+
 		$this->request_fingerprints[ $fingerprint ] = true;
-		$this->reporting                            = true;
+
+		if ( $non_fatal ) {
+			++$this->non_fatal_events;
+		}
+
+		$this->reporting = true;
 
 		try {
 			return $this->client->send_error( $this->without_empty_values( $payload ), $bypass_backoff );
@@ -267,6 +331,7 @@ final class Codegenie_Pulse_Reporter {
 			'wordpress_version' => get_bloginfo( 'version' ),
 			'php_version'       => PHP_VERSION,
 			'connector_version' => CODEGENIE_PULSE_CONNECTOR_VERSION,
+			'capture_mode'      => $this->options->capture_mode(),
 			'is_multisite'      => is_multisite(),
 			'request_type'      => $this->request_type(),
 		);
@@ -311,6 +376,162 @@ final class Codegenie_Pulse_Reporter {
 	 */
 	private function fatal_error_types() {
 		return array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR );
+	}
+
+	/**
+	 * @param int $severity PHP error constant.
+	 * @return bool
+	 */
+	private function should_capture_non_fatal( $severity ) {
+		if ( $this->reporting || ! $this->options->has_readable_dsn() ) {
+			return false;
+		}
+
+		if ( 0 === ( error_reporting() & $severity ) ) {
+			return false;
+		}
+
+		if ( ! in_array( $severity, $this->non_fatal_error_types(), true ) ) {
+			return false;
+		}
+
+		$limit = (int) apply_filters( 'codegenie_pulse_non_fatal_per_request_limit', 10 );
+		$limit = max( 1, min( 50, $limit ) );
+
+		return $this->non_fatal_events < $limit;
+	}
+
+	/**
+	 * @return int[]
+	 */
+	private function non_fatal_error_types() {
+		$warnings = array( E_WARNING, E_USER_WARNING );
+
+		if ( Codegenie_Pulse_Options::CAPTURE_EXTENDED === $this->options->capture_mode() ) {
+			return $warnings;
+		}
+
+		if ( Codegenie_Pulse_Options::CAPTURE_DEBUG === $this->options->capture_mode() ) {
+			return array_merge(
+				$warnings,
+				array( E_NOTICE, E_USER_NOTICE, E_DEPRECATED, E_USER_DEPRECATED, E_STRICT )
+			);
+		}
+
+		return array();
+	}
+
+	/**
+	 * @param int $severity PHP error constant.
+	 * @return string
+	 */
+	private function level_for_php_error( $severity ) {
+		return in_array( $severity, array( E_WARNING, E_USER_WARNING ), true ) ? 'warning' : 'notice';
+	}
+
+	/**
+	 * @param int $severity PHP error constant.
+	 * @return string
+	 */
+	private function class_for_php_error( $severity ) {
+		switch ( $severity ) {
+			case E_WARNING:
+				return 'PHPWarning';
+			case E_USER_WARNING:
+				return 'PHPUserWarning';
+			case E_NOTICE:
+				return 'PHPNotice';
+			case E_USER_NOTICE:
+				return 'PHPUserNotice';
+			case E_DEPRECATED:
+				return 'PHPDeprecated';
+			case E_USER_DEPRECATED:
+				return 'PHPUserDeprecated';
+			case E_STRICT:
+				return 'PHPStrict';
+			default:
+				return 'PHPError';
+		}
+	}
+
+	/**
+	 * @param int $severity PHP error constant.
+	 * @return string
+	 */
+	private function name_for_php_error( $severity ) {
+		switch ( $severity ) {
+			case E_WARNING:
+				return 'E_WARNING';
+			case E_USER_WARNING:
+				return 'E_USER_WARNING';
+			case E_NOTICE:
+				return 'E_NOTICE';
+			case E_USER_NOTICE:
+				return 'E_USER_NOTICE';
+			case E_DEPRECATED:
+				return 'E_DEPRECATED';
+			case E_USER_DEPRECATED:
+				return 'E_USER_DEPRECATED';
+			case E_STRICT:
+				return 'E_STRICT';
+			default:
+				return 'E_UNKNOWN';
+		}
+	}
+
+	/**
+	 * @param array<int, mixed> $arguments Original error-handler arguments.
+	 * @return bool
+	 */
+	private function delegate_to_previous_handler( $arguments ) {
+		if ( is_callable( $this->previous_error_handler ) ) {
+			return (bool) call_user_func_array( $this->previous_error_handler, $arguments );
+		}
+
+		return false;
+	}
+
+	/**
+	 * @param array<string, mixed> $payload Event payload.
+	 * @return string
+	 */
+	private function payload_fingerprint( $payload ) {
+		return hash(
+			'sha256',
+			(string) $payload['level'] . '|' . (string) $payload['message'] . '|' . (string) ( isset( $payload['file'] ) ? $payload['file'] : '' ) . '|' . (string) ( isset( $payload['line'] ) ? $payload['line'] : '' )
+		);
+	}
+
+	/**
+	 * Sample identical non-fatal errors across requests to prevent eventstorms.
+	 *
+	 * @param string $fingerprint Event fingerprint.
+	 * @return bool True when the event was already sampled recently.
+	 */
+	private function was_recently_sampled( $fingerprint ) {
+		$window = (int) apply_filters( 'codegenie_pulse_non_fatal_sample_seconds', 60 );
+		$window = max( 1, min( 3600, $window ) );
+		$now    = time();
+		$stored = get_transient( Codegenie_Pulse_Options::SAMPLE_KEY );
+		$samples = is_array( $stored ) ? $stored : array();
+
+		foreach ( $samples as $key => $timestamp ) {
+			if ( ! is_numeric( $timestamp ) || (int) $timestamp < $now - $window ) {
+				unset( $samples[ $key ] );
+			}
+		}
+
+		if ( isset( $samples[ $fingerprint ] ) ) {
+			return true;
+		}
+
+		$samples[ $fingerprint ] = $now;
+		arsort( $samples );
+		$samples = array_slice( $samples, 0, 50, true );
+
+		set_transient( Codegenie_Pulse_Options::SAMPLE_KEY, $samples, max( 60, $window * 2 ) );
+
+		return false;
 	}
 
 	/**
