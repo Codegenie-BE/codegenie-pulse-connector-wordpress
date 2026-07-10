@@ -19,15 +19,20 @@ final class Codegenie_Pulse_Admin {
 	/** @var Codegenie_Pulse_Secret_Store */
 	private $secret_store;
 
+	/** @var Codegenie_Pulse_Connection */
+	private $connection;
+
 	/**
 	 * @param Codegenie_Pulse_Options      $options      Options.
 	 * @param Codegenie_Pulse_Reporter     $reporter     Reporter.
 	 * @param Codegenie_Pulse_Secret_Store $secret_store Secret store.
+	 * @param Codegenie_Pulse_Connection   $connection   Automatic connection flow.
 	 */
-	public function __construct( Codegenie_Pulse_Options $options, Codegenie_Pulse_Reporter $reporter, Codegenie_Pulse_Secret_Store $secret_store ) {
+	public function __construct( Codegenie_Pulse_Options $options, Codegenie_Pulse_Reporter $reporter, Codegenie_Pulse_Secret_Store $secret_store, Codegenie_Pulse_Connection $connection ) {
 		$this->options      = $options;
 		$this->reporter     = $reporter;
 		$this->secret_store = $secret_store;
+		$this->connection   = $connection;
 	}
 
 	/**
@@ -36,8 +41,10 @@ final class Codegenie_Pulse_Admin {
 	public function register_hooks() {
 		add_action( 'admin_menu', array( $this, 'add_settings_page' ) );
 		add_action( 'admin_post_codegenie_pulse_save', array( $this, 'handle_save' ) );
+		add_action( 'admin_post_codegenie_pulse_authorize', array( $this, 'handle_authorize' ) );
 		add_action( 'admin_post_codegenie_pulse_test', array( $this, 'handle_test' ) );
 		add_action( 'admin_post_codegenie_pulse_disconnect', array( $this, 'handle_disconnect' ) );
+		add_action( 'admin_init', array( $this, 'harden_authorization_page' ), 1 );
 		add_filter( 'plugin_action_links_' . plugin_basename( CODEGENIE_PULSE_CONNECTOR_FILE ), array( $this, 'plugin_action_links' ) );
 		add_filter( 'debug_information', array( $this, 'add_debug_information' ) );
 		add_filter( 'site_status_tests', array( $this, 'add_site_health_test' ) );
@@ -83,12 +90,36 @@ final class Codegenie_Pulse_Admin {
 		$state    = $this->options->state();
 		$status   = $this->connection_status( $state );
 		$notice   = $this->take_notice();
+		$authorization = $this->authorization_request();
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html__( 'Codegenie Pulse Connector', 'codegenie-pulse-connector' ); ?></h1>
 
 			<?php if ( $notice ) : ?>
 				<div class="notice notice-<?php echo esc_attr( $notice['type'] ); ?> is-dismissible"><p><?php echo esc_html( $notice['message'] ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( is_wp_error( $authorization ) ) : ?>
+				<div class="notice notice-error"><p><?php echo esc_html( $authorization->get_error_message() ); ?></p></div>
+			<?php elseif ( is_array( $authorization ) ) : ?>
+				<div class="card" style="max-width: 100%; border-left: 4px solid #2271b1;">
+					<h2><?php echo esc_html__( 'Codegenie Pulse wil deze website koppelen', 'codegenie-pulse-connector' ); ?></h2>
+					<p><?php echo esc_html( sprintf( __( 'Platform: %s', 'codegenie-pulse-connector' ), $authorization['pulse_host'] ) ); ?></p>
+					<p><?php echo esc_html( sprintf( __( 'WordPress-site: %s', 'codegenie-pulse-connector' ), home_url( '/' ) ) ); ?></p>
+					<p><?php echo esc_html__( 'Na je goedkeuring deelt WordPress de sitenaam en technische WordPress-, plugin- en PHP-versies. Pulse stelt websiteverificatie en de functies van je abonnement automatisch in.', 'codegenie-pulse-connector' ); ?></p>
+					<p><strong><?php echo esc_html__( 'Er worden geen bezoekersdata, wachtwoorden, cookies, formulierinhoud of bestaande logbestanden gedeeld.', 'codegenie-pulse-connector' ); ?></strong></p>
+					<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px;">
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="codegenie_pulse_authorize">
+							<input type="hidden" name="request_token" value="<?php echo esc_attr( $authorization['request_token'] ); ?>">
+							<input type="hidden" name="challenge_id" value="<?php echo esc_attr( $authorization['challenge_id'] ); ?>">
+							<input type="hidden" name="pulse_origin" value="<?php echo esc_attr( $authorization['pulse_origin'] ); ?>">
+							<?php wp_nonce_field( 'codegenie_pulse_authorize' ); ?>
+							<?php submit_button( __( 'Koppeling goedkeuren', 'codegenie-pulse-connector' ), 'primary', 'submit', false ); ?>
+						</form>
+						<a href="<?php echo esc_url( $this->settings_url() ); ?>" class="button button-secondary"><?php echo esc_html__( 'Annuleren', 'codegenie-pulse-connector' ); ?></a>
+					</div>
+				</div>
 			<?php endif; ?>
 
 			<?php if ( ! $this->secret_store->is_available() ) : ?>
@@ -105,7 +136,7 @@ final class Codegenie_Pulse_Admin {
 				<h2><?php echo esc_html__( 'Verbindingsstatus', 'codegenie-pulse-connector' ); ?></h2>
 				<p><strong><?php echo esc_html( $status['label'] ); ?></strong></p>
 				<p><?php echo esc_html( $status['description'] ); ?></p>
-				<p><code><?php echo esc_html( $this->options->masked_dsn() ); ?></code></p>
+				<p><code><?php echo esc_html( $this->connection_label() ); ?></code></p>
 				<?php if ( ! empty( $state['last_success_at'] ) ) : ?>
 					<p><?php echo esc_html( sprintf( __( 'Laatste succesvolle levering: %s', 'codegenie-pulse-connector' ), $this->format_datetime( $state['last_success_at'] ) ) ); ?></p>
 				<?php endif; ?>
@@ -115,14 +146,15 @@ final class Codegenie_Pulse_Admin {
 			</div>
 
 			<div class="card" style="max-width: 100%;">
-				<h2><?php echo esc_html__( 'Koppelen in vier stappen', 'codegenie-pulse-connector' ); ?></h2>
-				<ol>
-					<li><?php echo esc_html__( 'Voeg je website toe in Codegenie Pulse en kopieer het websiteverificatietoken.', 'codegenie-pulse-connector' ); ?></li>
-					<li><?php echo esc_html__( 'Plak het token hieronder, sla op en klik daarna in Codegenie Pulse op Verificatie controleren.', 'codegenie-pulse-connector' ); ?></li>
-					<li><?php echo esc_html__( 'Open in Codegenie Pulse de foutinstellingen, maak een WordPress-productiebron aan en kopieer de volledige DSN.', 'codegenie-pulse-connector' ); ?></li>
-					<li><?php echo esc_html__( 'Plak de DSN hieronder, sla op en verstuur een verbindingstest.', 'codegenie-pulse-connector' ); ?></li>
-				</ol>
+				<h2><?php echo esc_html__( 'Automatisch koppelen vanuit Pulse', 'codegenie-pulse-connector' ); ?></h2>
+				<p><?php echo esc_html__( 'Open Codegenie Pulse, kies Website toevoegen en daarna WordPress koppelen. Je keert automatisch terug naar dit scherm om de koppeling goed te keuren. Tokens en DSN-velden worden daarna veilig ingevuld.', 'codegenie-pulse-connector' ); ?></p>
+				<?php if ( '' !== (string) $settings['pulse_dashboard_url'] ) : ?>
+					<p><a class="button button-secondary" href="<?php echo esc_url( $settings['pulse_dashboard_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html__( 'Website openen in Codegenie Pulse', 'codegenie-pulse-connector' ); ?></a></p>
+				<?php endif; ?>
 			</div>
+
+			<h2><?php echo esc_html__( 'Handmatige fallback en geavanceerde instellingen', 'codegenie-pulse-connector' ); ?></h2>
+			<p><?php echo esc_html__( 'Gebruik onderstaande velden alleen wanneer de automatische koppeling niet beschikbaar is of wanneer je de capture-instellingen bewust wilt aanpassen.', 'codegenie-pulse-connector' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="codegenie_pulse_save">
@@ -179,30 +211,98 @@ final class Codegenie_Pulse_Admin {
 				<?php submit_button( __( 'Instellingen opslaan', 'codegenie-pulse-connector' ) ); ?>
 			</form>
 
-			<?php if ( $this->options->has_readable_dsn() ) : ?>
+			<?php if ( $this->options->has_platform_connection() ) : ?>
 				<hr>
 				<h2><?php echo esc_html__( 'Verbinding beheren', 'codegenie-pulse-connector' ); ?></h2>
-				<p><?php echo esc_html__( 'Een test verstuurt één info-event en telt daarom als één verwerkt event binnen je Pulse-plan.', 'codegenie-pulse-connector' ); ?></p>
+				<?php if ( $this->options->has_readable_dsn() ) : ?>
+					<p><?php echo esc_html__( 'Een test verstuurt één info-event en telt daarom als één verwerkt event binnen je Pulse-plan.', 'codegenie-pulse-connector' ); ?></p>
+				<?php else : ?>
+					<p><?php echo esc_html__( 'De website is gekoppeld voor monitoring. Foutmonitoring vereist een plan dat deze functie ondersteunt.', 'codegenie-pulse-connector' ); ?></p>
+				<?php endif; ?>
 				<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;">
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-						<input type="hidden" name="action" value="codegenie_pulse_test">
-						<?php wp_nonce_field( 'codegenie_pulse_test' ); ?>
-						<?php submit_button( __( 'Verbinding testen', 'codegenie-pulse-connector' ), 'secondary', 'submit', false ); ?>
-					</form>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'De Codegenie Pulse DSN verwijderen?', 'codegenie-pulse-connector' ) ); ?>');">
+					<?php if ( $this->options->has_readable_dsn() ) : ?>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="codegenie_pulse_test">
+							<?php wp_nonce_field( 'codegenie_pulse_test' ); ?>
+							<?php submit_button( __( 'Verbinding testen', 'codegenie-pulse-connector' ), 'secondary', 'submit', false ); ?>
+						</form>
+					<?php endif; ?>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'De lokale Codegenie Pulse-koppeling verbreken? De website blijft in Pulse staan totdat je die daar verwijdert of archiveert.', 'codegenie-pulse-connector' ) ); ?>');">
 						<input type="hidden" name="action" value="codegenie_pulse_disconnect">
 						<?php wp_nonce_field( 'codegenie_pulse_disconnect' ); ?>
-						<?php submit_button( __( 'DSN verwijderen', 'codegenie-pulse-connector' ), 'delete', 'submit', false ); ?>
+						<?php submit_button( __( 'Lokale koppeling verbreken', 'codegenie-pulse-connector' ), 'delete', 'submit', false ); ?>
 					</form>
 				</div>
 			<?php endif; ?>
 
 			<div class="card" style="max-width: 100%;">
 				<h2><?php echo esc_html__( 'Privacy en veiligheid', 'codegenie-pulse-connector' ); ?></h2>
-				<p><?php echo esc_html__( 'De connector verstuurt geen cookies, autorisatieheaders, formulierdata, request bodies, e-mailadressen of WordPress-gebruikers. URL-querystrings en bekende geheimen worden lokaal verwijderd. De connector leest geen bestaand debug.log- of PHP error_log-bestand en stuurt niets zolang er geen DSN is ingesteld.', 'codegenie-pulse-connector' ); ?></p>
+				<p><?php echo esc_html__( 'De connector verstuurt geen cookies, autorisatieheaders, formulierdata, request bodies, e-mailadressen of WordPress-gebruikers. Bij een goedgekeurde koppeling worden alleen site- en technische versies gedeeld. URL-querystrings en bekende geheimen worden lokaal verwijderd. De connector leest geen bestaand debug.log- of PHP error_log-bestand.', 'codegenie-pulse-connector' ); ?></p>
 			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Complete a Pulse-started connection after explicit administrator consent.
+	 *
+	 * @return void
+	 */
+	public function handle_authorize() {
+		$this->authorize_action( 'codegenie_pulse_authorize' );
+
+		if ( ! $this->secret_store->is_available() ) {
+			$this->set_notice( 'error', __( 'OpenSSL is vereist voor de veilige WordPress-koppeling.', 'codegenie-pulse-connector' ) );
+			$this->redirect_to_settings();
+
+			return;
+		}
+
+		$request_token = isset( $_POST['request_token'] ) ? sanitize_text_field( wp_unslash( $_POST['request_token'] ) ) : '';
+		$challenge_id  = isset( $_POST['challenge_id'] ) ? sanitize_text_field( wp_unslash( $_POST['challenge_id'] ) ) : '';
+		$pulse_origin  = isset( $_POST['pulse_origin'] ) ? esc_url_raw( wp_unslash( $_POST['pulse_origin'] ) ) : '';
+		$result        = $this->connection->exchange( $pulse_origin, $request_token, $challenge_id );
+
+		if ( is_wp_error( $result ) ) {
+			$this->set_notice( 'error', $result->get_error_message() );
+			$this->redirect_to_settings();
+
+			return;
+		}
+
+		$this->set_notice(
+			'success',
+			isset( $result['message'] ) && is_string( $result['message'] )
+				? $result['message']
+				: __( 'WordPress is gekoppeld met Codegenie Pulse.', 'codegenie-pulse-connector' )
+		);
+
+		if ( ! empty( $result['dashboard_url'] ) && is_string( $result['dashboard_url'] ) ) {
+			$this->redirect_to_pulse( $result['dashboard_url'] );
+
+			return;
+		}
+
+		$this->redirect_to_settings();
+	}
+
+	/**
+	 * Prevent one-time authorization values from being cached or sent as a referrer.
+	 *
+	 * @return void
+	 */
+	public function harden_authorization_page() {
+		if ( ! isset( $_GET['page'], $_GET['codegenie_pulse_authorize'] ) ) {
+			return;
+		}
+
+		if ( self::PAGE_SLUG !== sanitize_key( wp_unslash( $_GET['page'] ) ) ) {
+			return;
+		}
+
+		nocache_headers();
+		header( 'Referrer-Policy: no-referrer' );
+		header( 'X-Content-Type-Options: nosniff' );
 	}
 
 	/**
@@ -263,7 +363,7 @@ final class Codegenie_Pulse_Admin {
 	public function handle_disconnect() {
 		$this->authorize_action( 'codegenie_pulse_disconnect' );
 		$this->options->disconnect();
-		$this->set_notice( 'success', __( 'De Codegenie Pulse DSN is verwijderd.', 'codegenie-pulse-connector' ) );
+		$this->set_notice( 'success', __( 'De lokale Codegenie Pulse-koppeling is verwijderd. Beheer of archiveer de website afzonderlijk in Pulse.', 'codegenie-pulse-connector' ) );
 		$this->redirect_to_settings();
 	}
 
@@ -289,7 +389,7 @@ final class Codegenie_Pulse_Admin {
 				),
 				'endpoint' => array(
 					'label'   => __( 'Endpoint', 'codegenie-pulse-connector' ),
-					'value'   => $this->options->masked_dsn(),
+					'value'   => $this->connection_label(),
 					'private' => true,
 				),
 				'capture_mode' => array(
@@ -320,7 +420,7 @@ final class Codegenie_Pulse_Admin {
 	 */
 	public function site_health_result() {
 		$status = $this->connection_status( $this->options->state() );
-		$good   = 'connected' === $status['code'];
+		$good   = in_array( $status['code'], array( 'connected', 'connected_limited' ), true );
 
 		return array(
 			'label'       => $status['label'],
@@ -340,6 +440,34 @@ final class Codegenie_Pulse_Admin {
 	 * @return array<string, string>
 	 */
 	private function connection_status( $state ) {
+		if ( 'automatic' === (string) $this->options->get( 'connection_method', '' ) && $this->options->has_platform_connection() ) {
+			if ( $this->options->has_stored_dsn() && ! $this->options->has_readable_dsn() ) {
+				return array(
+					'code'        => 'unreadable',
+					'label'       => __( 'Opnieuw koppelen vereist', 'codegenie-pulse-connector' ),
+					'description' => __( 'De versleutelde DSN kan niet worden gelezen. Start de WordPress-koppeling opnieuw vanuit Pulse.', 'codegenie-pulse-connector' ),
+				);
+			}
+
+			if ( ! $this->options->has_readable_dsn() ) {
+				$plan_label = (string) $this->options->get( 'pulse_plan_label', '' );
+
+				return array(
+					'code'        => 'connected_limited',
+					'label'       => __( 'Website gekoppeld', 'codegenie-pulse-connector' ),
+					'description' => '' !== $plan_label
+						? sprintf( __( 'De website is automatisch gekoppeld. Foutmonitoring is niet actief binnen het plan %s.', 'codegenie-pulse-connector' ), $plan_label )
+						: __( 'De website is automatisch gekoppeld. Foutmonitoring is niet actief binnen het huidige plan.', 'codegenie-pulse-connector' ),
+				);
+			}
+
+			return array(
+				'code'        => 'connected',
+				'label'       => __( 'Automatisch verbonden', 'codegenie-pulse-connector' ),
+				'description' => __( 'Websiteverificatie en de beschikbare Pulse-functies zijn automatisch ingesteld.', 'codegenie-pulse-connector' ),
+			);
+		}
+
 		if ( ! $this->options->has_stored_dsn() ) {
 			return array(
 				'code'        => 'not_configured',
@@ -401,10 +529,75 @@ final class Codegenie_Pulse_Admin {
 	}
 
 	/**
+	 * Validate the browser-visible, short-lived authorization values.
+	 * The site proof itself never appears in this request.
+	 *
+	 * @return array<string, string>|WP_Error|null
+	 */
+	private function authorization_request() {
+		if ( ! isset( $_GET['codegenie_pulse_authorize'] ) ) {
+			return null;
+		}
+
+		$request_token = isset( $_GET['request'] ) ? sanitize_text_field( wp_unslash( $_GET['request'] ) ) : '';
+		$challenge_id  = isset( $_GET['challenge'] ) ? sanitize_text_field( wp_unslash( $_GET['challenge'] ) ) : '';
+		$pulse_origin  = isset( $_GET['pulse_origin'] ) ? esc_url_raw( wp_unslash( $_GET['pulse_origin'] ) ) : '';
+
+		if ( 1 !== preg_match( '/^[A-Za-z0-9]{64}$/', $request_token ) || 1 !== preg_match( '/^[A-Za-z0-9]{48}$/', $challenge_id ) ) {
+			return new WP_Error( 'codegenie_pulse_invalid_authorization', __( 'De WordPress-koppelingsaanvraag is ongeldig. Start opnieuw in Codegenie Pulse.', 'codegenie-pulse-connector' ) );
+		}
+
+		$normalized_origin = $this->connection->normalize_origin( $pulse_origin );
+
+		if ( is_wp_error( $normalized_origin ) ) {
+			return $normalized_origin;
+		}
+
+		$parts = wp_parse_url( $normalized_origin );
+
+		return array(
+			'request_token' => $request_token,
+			'challenge_id'  => $challenge_id,
+			'pulse_origin'  => $normalized_origin,
+			'pulse_host'    => is_array( $parts ) && isset( $parts['host'] ) ? (string) $parts['host'] : $normalized_origin,
+		);
+	}
+
+	/**
 	 * @return string
 	 */
 	private function settings_url() {
 		return admin_url( 'options-general.php?page=' . self::PAGE_SLUG );
+	}
+
+	/**
+	 * Redirect only to the already validated Pulse host.
+	 *
+	 * @param string $url Pulse dashboard URL.
+	 * @return void
+	 */
+	private function redirect_to_pulse( $url ) {
+		$parts = wp_parse_url( $url );
+
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			$this->redirect_to_settings();
+
+			return;
+		}
+
+		$allowed_host = strtolower( (string) $parts['host'] );
+
+		add_filter(
+			'allowed_redirect_hosts',
+			static function ( $hosts ) use ( $allowed_host ) {
+				$hosts[] = $allowed_host;
+
+				return array_values( array_unique( $hosts ) );
+			}
+		);
+
+		wp_safe_redirect( $url );
+		exit;
 	}
 
 	/**
@@ -413,6 +606,27 @@ final class Codegenie_Pulse_Admin {
 	private function redirect_to_settings() {
 		wp_safe_redirect( $this->settings_url() );
 		exit;
+	}
+
+	/**
+	 * @return string
+	 */
+	private function connection_label() {
+		if ( $this->options->has_readable_dsn() || $this->options->has_stored_dsn() ) {
+			return $this->options->masked_dsn();
+		}
+
+		$pulse_origin = (string) $this->options->get( 'pulse_origin', '' );
+		$plan_label   = (string) $this->options->get( 'pulse_plan_label', '' );
+
+		if ( '' !== $pulse_origin ) {
+			$host = wp_parse_url( $pulse_origin, PHP_URL_HOST );
+			$label = is_string( $host ) && '' !== $host ? $host : $pulse_origin;
+
+			return '' !== $plan_label ? $label . ', ' . $plan_label : $label;
+		}
+
+		return $this->options->masked_dsn();
 	}
 
 	/**

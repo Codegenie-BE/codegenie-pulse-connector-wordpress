@@ -59,10 +59,12 @@ final class Codegenie_Pulse_Plugin {
 		$redactor           = new Codegenie_Pulse_Redactor();
 		$client             = new Codegenie_Pulse_Client( $this->options );
 		$this->reporter     = new Codegenie_Pulse_Reporter( $client, $this->options, $redactor );
+		$connection         = new Codegenie_Pulse_Connection( $this->options );
 		$verification       = new Codegenie_Pulse_Verification_Endpoint( $this->options );
-		$admin              = new Codegenie_Pulse_Admin( $this->options, $this->reporter, $secret_store );
+		$admin              = new Codegenie_Pulse_Admin( $this->options, $this->reporter, $secret_store, $connection );
 		$deployment_tracker = new Codegenie_Pulse_Deployment_Tracker( $client, $redactor );
 
+		$connection->register_hooks();
 		$verification->register_hooks();
 
 		if ( is_admin() ) {

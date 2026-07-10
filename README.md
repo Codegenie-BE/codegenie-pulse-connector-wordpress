@@ -2,6 +2,18 @@
 
 WordPress-connector voor het bestaande Codegenie Pulse ingestiecontract.
 
+Versie 1.2.0 ondersteunt daarnaast een Pulse-first koppelingsflow. Een klant vult de WordPress-URL in Pulse in, keurt de koppeling in WordPress goed en krijgt verificatie, foutmonitoring en deployment tracking automatisch ingesteld volgens het actieve plan.
+
+## Automatisch koppelen
+
+1. Installeer en activeer de plugin.
+2. Kies in Pulse `Website toevoegen > WordPress koppelen`.
+3. Vul de publieke HTTPS-home-URL in.
+4. Keur de aanvraag goed in `Instellingen > Codegenie Pulse`.
+5. Pulse maakt of koppelt de website en levert de configuratie eenmalig server-to-server terug.
+
+De permanente DSN of ingestiontoken staat nooit in de browser-URL. Pulse haalt eerst een unieke site proof op via het discovery-endpoint. WordPress kan die proof alleen opnieuw berekenen met de eigen auth salts. De browser bevat alleen een kortlevend request token en een challenge die zonder de proof niet bruikbaar zijn.
+
 ## Platformcontract
 
 De plugin gebruikt zonder extra platform-API:
@@ -9,6 +21,11 @@ De plugin gebruikt zonder extra platform-API:
 * `POST /api/ingest/errors/{token}` voor foutgebeurtenissen en de verbindingstest
 * `POST /api/ingest/deployments/{token}` voor WordPress-, plugin- en themawijzigingen
 * `GET /.well-known/codegenie-pulse.txt` op de WordPress-site voor eigendomsverificatie
+
+Voor automatisch koppelen gebruikt versie 1.2.0 aanvullend:
+
+* `GET /wp-json/codegenie-pulse/v1/discovery` op de WordPress-site
+* `POST /api/connectors/wordpress/exchange` op de gekozen Pulse-installatie
 
 De deployment-URL wordt lokaal afgeleid van de fout-DSN. Dezelfde 64 tekens lange foutbrontoken wordt gebruikt, overeenkomstig het Codegenie Pulse-contract.
 
@@ -113,6 +130,9 @@ add_action( 'codegenie_pulse_delivery_failed', function ( $kind, $status, $code 
 ## Privacy- en securitygrenzen
 
 * DSN versleuteld met een sleutel afgeleid van WordPress auth salts
+* expliciete `manage_options`-toestemming en WordPress nonce voor automatisch koppelen
+* een site proof die niet in de browserredirect staat
+* geen permanente Pulse-secrets in browsergeschiedenis, querystrings of referrers
 * uitsluitend HTTPS en een exact Pulse ingestiepad
 * `wp_safe_remote_post()` en nul redirects, zodat een token niet naar een redirectdoel gaat
 * maximaal 10 seconden configureerbare HTTP-timeout, standaard 3 seconden

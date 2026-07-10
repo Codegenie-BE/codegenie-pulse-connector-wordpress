@@ -4,7 +4,7 @@ Tags: monitoring, error monitoring, uptime, fatal errors, deployment tracking
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,6 +16,8 @@ Codegenie Pulse Connector maakt de koppeling tussen een WordPress-website en een
 
 De plugin biedt:
 
+* automatische Pulse-first koppeling met expliciete toestemming van een WordPress-beheerder;
+* een eenmalige, kortlevende autorisatie zonder permanente secrets in de browser-URL;
 * websiteverificatie via `/.well-known/codegenie-pulse.txt`;
 * een eenvoudige DSN-koppeling met een verbindingstest;
 * instelbare PHP-foutcapture voor productie, uitgebreid gebruik en tijdelijke debug;
@@ -28,18 +30,18 @@ De plugin biedt:
 * versleutelde opslag van de DSN met WordPress salts en AES-256-GCM;
 * token-veilige diagnose via WordPress Site Health.
 
-De plugin heeft geen Composer-package, queue, cronjob of externe JavaScript nodig. Hij stuurt niets zolang een beheerder geen Codegenie Pulse DSN instelt.
+De plugin heeft geen Composer-package, queue, cronjob of externe JavaScript nodig. Site- en versiegegevens worden pas verstuurd nadat een WordPress-beheerder de koppeling bewust goedkeurt. Foutgebeurtenissen worden alleen verstuurd wanneer een geldige DSN beschikbaar is.
 
 == Installation ==
 
 1. Upload de plugin-ZIP via `Plugins > Nieuwe plugin > Plugin uploaden`.
 2. Activeer `Codegenie Pulse Connector`.
-3. Open `Instellingen > Codegenie Pulse`.
-4. Voeg je website toe in Codegenie Pulse en plak het websiteverificatietoken in WordPress.
-5. Sla op en laat Codegenie Pulse de website verifiëren.
-6. Maak in Codegenie Pulse een foutbron voor WordPress productie aan.
-7. Kopieer de volledige DSN en plak die in WordPress.
-8. Sla op en klik op `Verbinding testen`.
+3. Open Codegenie Pulse en kies `Website toevoegen > WordPress koppelen`.
+4. Vul de publieke HTTPS-home-URL van de WordPress-site in.
+5. Log indien nodig in op WordPress en keur de koppeling als beheerder goed.
+6. Pulse stelt websiteverificatie en alle functies van het actieve abonnement automatisch in.
+
+De bestaande verificatietoken- en DSN-velden blijven beschikbaar als handmatige fallback.
 
 == Frequently Asked Questions ==
 
@@ -53,7 +55,7 @@ Het bestaande Codegenie Pulse ingestie-endpoint bevestigt een koppeling door een
 
 = Kan de plugin op een lokale HTTP-omgeving worden gebruikt? =
 
-Standaard niet. Productie-DSN's moeten HTTPS gebruiken en naar een veilige publieke URL wijzen. Ontwikkelaars kunnen de filter `codegenie_pulse_allow_insecure_dsn` uitsluitend in een gecontroleerde lokale omgeving activeren.
+Standaard niet. Productie-DSN's en automatische platformkoppelingen moeten HTTPS gebruiken en naar een veilige publieke URL wijzen. Ontwikkelaars kunnen de filters `codegenie_pulse_allow_insecure_dsn` en `codegenie_pulse_allow_insecure_platform_origin` uitsluitend in een gecontroleerde lokale omgeving activeren.
 
 = Wat gebeurt er als WordPress salts wijzigen? =
 
@@ -77,17 +79,31 @@ Identieke niet-fatale fouten worden standaard maximaal één keer per minuut ver
 
 == External service ==
 
-Deze plugin verstuurt gegevens naar de Codegenie Pulse-installatie waarvan een WordPress-beheerder bewust een DSN invoert. De host van die DSN verwerkt de gebeurtenissen volgens de voorwaarden en privacyverklaring van die Codegenie Pulse-installatie. Die documenten zijn beschikbaar op de platformhost via `/terms` en `/privacy`.
+Deze plugin verstuurt gegevens naar de Codegenie Pulse-installatie die een WordPress-beheerder via de automatische koppeling goedkeurt of handmatig via een DSN configureert. Die installatie verwerkt de gebeurtenissen volgens de voorwaarden en privacyverklaring op de platformhost via `/terms` en `/privacy`.
 
-Er wordt geen verbinding met Codegenie Pulse gemaakt voordat een beheerder een DSN opslaat. De websiteverificatie-URL is een publiek tekstendpoint met uitsluitend het verificatietoken dat de beheerder invoert.
+Het publieke discovery-endpoint geeft alleen connectorinformatie en een eenmalige site proof terug aan de aanvragende Pulse-installatie. WordPress verstuurt site- en technische versies pas nadat een beheerder de koppeling bewust goedkeurt. De websiteverificatie-URL is een publiek tekstendpoint met uitsluitend het verificatietoken.
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+
+Voegt een veilige Pulse-first WordPress-koppeling toe die verificatie, foutmonitoring en deployment tracking automatisch instelt volgens het actieve abonnement.
 
 = 1.1.0 =
 
 Voegt veilige optionele capture van PHP warnings, notices en deprecated-meldingen toe. Bestaande 1.0.0-instellingen worden automatisch behouden als Productie of Uitgeschakeld.
 
 == Changelog ==
+
+= 1.2.0 =
+
+* Automatische koppeling gestart vanuit Codegenie Pulse.
+* Expliciet toestemmingsscherm voor WordPress-beheerders.
+* Out-of-band site proof op basis van WordPress auth salts.
+* Kortlevende eenmalige request tokens, zonder DSN of ingestiontoken in de browser-URL.
+* Automatische websiteverificatie en plan-afhankelijke provisioning.
+* Starter ondersteunt de websitekoppeling zonder fout-DSN; Pro en Agency krijgen automatisch foutmonitoring.
+* Handmatige verificatietoken- en DSN-flow blijft als fallback beschikbaar.
 
 = 1.1.0 =
 
