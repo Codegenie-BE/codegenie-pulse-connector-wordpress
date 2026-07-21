@@ -52,6 +52,46 @@ function codegenie_run( $command, $environment = array() ) {
 	return trim( $stdout );
 }
 
+/**
+ * Remove a temporary bare Git directory created by this builder.
+ *
+ * @param string $path Temporary Git directory.
+ * @return void
+ */
+function codegenie_remove_source_git_directory( $path ) {
+	if ( '' === $path || ! is_dir( $path ) ) {
+		return;
+	}
+
+	$resolved_path   = realpath( $path );
+	$resolved_parent = realpath( sys_get_temp_dir() );
+
+	if ( false === $resolved_path || false === $resolved_parent || 0 !== strcasecmp( dirname( $resolved_path ), $resolved_parent ) || 0 !== strpos( basename( $resolved_path ), 'codegenie-source-git-' ) ) {
+		throw new RuntimeException(
+			'Refusing to remove an unexpected source archive Git directory: '
+			. ( false === $resolved_path ? 'unresolved path' : $resolved_path )
+			. ' (expected parent '
+			. ( false === $resolved_parent ? 'unresolved' : $resolved_parent )
+			. ').'
+		);
+	}
+
+	$iterator = new RecursiveIteratorIterator(
+		new RecursiveDirectoryIterator( $resolved_path, FilesystemIterator::SKIP_DOTS ),
+		RecursiveIteratorIterator::CHILD_FIRST
+	);
+
+	foreach ( $iterator as $item ) {
+		if ( $item->isDir() && ! $item->isLink() ) {
+			rmdir( $item->getPathname() );
+		} else {
+			unlink( $item->getPathname() );
+		}
+	}
+
+	rmdir( $resolved_path );
+}
+
 try {
 	codegenie_run( array( PHP_BINARY, $root . '/scripts/check-versions.php' ) );
 	Codegenie_WordPress_Org_Asset_Manifest::from_directory(
@@ -66,8 +106,8 @@ try {
 	}
 
 	$tree = codegenie_run( array( 'git', '-C', $root, 'rev-parse', 'HEAD^{tree}' ) );
-	$temp_index = '';
-	$source_index = '';
+	$temp_index     = '';
+	$source_git_dir = '';
 
 	if ( $allow_dirty ) {
 		$temp_index = tempnam( sys_get_temp_dir(), 'codegenie-index-' );
@@ -103,40 +143,68 @@ try {
 			'--mtime=2000-01-01T00:00:00Z',
 			'--output=' . $zip_path,
 			$tree,
-		)
+		),
+		array( 'TZ' => 'UTC' )
 	);
 
-	// Build a reviewable source archive from the same tree without applying export-ignore.
-	$source_index = tempnam( sys_get_temp_dir(), 'codegenie-source-index-' );
-	if ( false === $source_index ) {
-		throw new RuntimeException( 'Unable to create source archive Git index.' );
+	// Use a temporary Git directory so info/attributes can override export-ignore
+	// while retaining the committed eol=lf rules on every source file.
+	$source_git_dir = rtrim( sys_get_temp_dir(), '/\\' ) . DIRECTORY_SEPARATOR . 'codegenie-source-git-' . bin2hex( random_bytes( 12 ) );
+	if ( ! mkdir( $source_git_dir, 0700 ) && ! is_dir( $source_git_dir ) ) {
+		throw new RuntimeException( 'Unable to create source archive Git directory.' );
 	}
-	unlink( $source_index );
-	$source_environment = array( 'GIT_INDEX_FILE' => $source_index );
-	codegenie_run( array( 'git', '-C', $root, 'read-tree', $tree ), $source_environment );
-	codegenie_run( array( 'git', '-C', $root, 'update-index', '--force-remove', '.gitattributes' ), $source_environment );
-	$source_tree = codegenie_run( array( 'git', '-C', $root, 'write-tree' ), $source_environment );
+
+	codegenie_run( array( 'git', 'init', '--bare', '--quiet', $source_git_dir ) );
+	$common_git_dir = codegenie_run( array( 'git', '-C', $root, 'rev-parse', '--path-format=absolute', '--git-common-dir' ) );
+	$object_dir     = rtrim( str_replace( '\\', '/', $common_git_dir ), '/' ) . '/objects';
+	$alternates     = $source_git_dir . '/objects/info/alternates';
+	$attributes     = $source_git_dir . '/info/attributes';
+	$source_attribute_patterns = array(
+		'.github -export-ignore',
+		'.github/** -export-ignore',
+		'docs -export-ignore',
+		'docs/** -export-ignore',
+		'scripts -export-ignore',
+		'scripts/** -export-ignore',
+		'tests -export-ignore',
+		'tests/** -export-ignore',
+		'wordpress-org -export-ignore',
+		'wordpress-org/** -export-ignore',
+		'.gitattributes -export-ignore',
+		'.gitignore -export-ignore',
+		'AGENTS.md -export-ignore',
+		'CONTRIBUTING.md -export-ignore',
+		'SECURITY.md -export-ignore',
+		'README.md -export-ignore',
+		'composer.json -export-ignore',
+		'composer.lock -export-ignore',
+		'phpcs.xml.dist -export-ignore',
+		'phpunit.xml.dist -export-ignore',
+	);
+
+	if ( false === file_put_contents( $alternates, $object_dir . "\n" ) || false === file_put_contents( $attributes, implode( "\n", $source_attribute_patterns ) . "\n" ) ) {
+		throw new RuntimeException( 'Unable to configure source archive Git attributes.' );
+	}
+
 	codegenie_run(
 		array(
 			'git',
-			'-C',
-			$root,
+			'--git-dir=' . $source_git_dir,
 			'archive',
 			'--format=zip',
 			'--prefix=' . $source_slug . '/',
 			'--mtime=2000-01-01T00:00:00Z',
-			'--add-file=' . $root . '/.gitattributes',
 			'--output=' . $source_zip_path,
-			$source_tree,
-		)
+			$tree,
+		),
+		array( 'TZ' => 'UTC' )
 	);
 
 	if ( $temp_index && is_file( $temp_index ) ) {
 		unlink( $temp_index );
 	}
-	if ( $source_index && is_file( $source_index ) ) {
-		unlink( $source_index );
-	}
+	codegenie_remove_source_git_directory( $source_git_dir );
+	$source_git_dir = '';
 
 	codegenie_run( array( PHP_BINARY, $root . '/scripts/verify-package.php', $zip_path ) );
 
@@ -213,8 +281,12 @@ try {
 	if ( isset( $temp_index ) && $temp_index && is_file( $temp_index ) ) {
 		unlink( $temp_index );
 	}
-	if ( isset( $source_index ) && $source_index && is_file( $source_index ) ) {
-		unlink( $source_index );
+	if ( isset( $source_git_dir ) && $source_git_dir ) {
+		try {
+			codegenie_remove_source_git_directory( $source_git_dir );
+		} catch ( Throwable $cleanup_error ) {
+			unset( $cleanup_error );
+		}
 	}
 	fwrite( STDERR, $throwable->getMessage() . "\n" );
 	exit( 1 );

@@ -53,6 +53,10 @@ for ( $index = 0; $index < $zip->numFiles; ++$index ) {
 	$content = $zip->getFromIndex( $index );
 
 	if ( is_string( $content ) && false === strpos( $content, "\0" ) ) {
+		if ( preg_match( '#(?:\.(?:json|lock|md|php|sh|txt|xml|ya?ml)|(?:^|/)(?:\.gitattributes|\.gitignore|LICENSE))$#i', $name ) && false !== strpos( $content, "\r\n" ) ) {
+			$errors[] = 'Source ZIP text entry does not use canonical LF line endings: ' . $name;
+		}
+
 		foreach ( $secret_patterns as $pattern ) {
 			if ( preg_match( $pattern, $content ) ) {
 				$errors[] = 'Possible secret in source ZIP entry: ' . $name;
