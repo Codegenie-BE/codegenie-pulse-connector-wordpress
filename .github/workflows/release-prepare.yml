@@ -162,6 +162,8 @@ jobs:
             cat /tmp/source-first.sha256
           } > dist/reproducibility.txt
       - name: Build read-only WordPress.org SVN dry-run
+        id: wordpress_org_dry_run
+        continue-on-error: true
         run: php scripts/prepare-wordpress-org.php "dist/codegenie-pulse-connector-${RELEASE_VERSION}.zip"
       - name: Extract built plugin for Plugin Check
         run: unzip -q "dist/codegenie-pulse-connector-${RELEASE_VERSION}.zip" -d plugin-build
@@ -190,3 +192,8 @@ jobs:
             dist/wordpress-org-svn-dry-run.report.txt
           if-no-files-found: error
           retention-days: 30
+      - name: Enforce WordPress.org human-asset gate
+        if: steps.wordpress_org_dry_run.outcome == 'failure'
+        run: |
+          echo "WordPress.org publication remains blocked. Review the uploaded dry-run report."
+          exit 1

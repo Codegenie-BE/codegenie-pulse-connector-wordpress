@@ -3,6 +3,8 @@
  * Verify the source ZIP root, contents, secrets, and integrity.
  */
 
+require_once __DIR__ . '/lib/wordpress-org-asset-manifest.php';
+
 if ( ! isset( $argv[1], $argv[2] ) || ! is_file( $argv[1] ) || 1 !== preg_match( '/^[0-9]+\.[0-9]+\.[0-9]+$/D', $argv[2] ) ) {
 	fwrite( STDERR, "Usage: php scripts/verify-source-package.php <source.zip> <x.y.z>\n" );
 	exit( 2 );
@@ -70,6 +72,7 @@ $required = array(
 	$root . 'docs/releases/' . $version . '.md',
 	$root . 'docs/WORDPRESS_ORG_RELEASE.md',
 	$root . 'scripts/build-release.php',
+	$root . 'scripts/lib/wordpress-org-asset-manifest.php',
 	$root . 'scripts/prepare-wordpress-org.php',
 	$root . 'tests/bootstrap.php',
 	$root . 'wordpress-org/assets/manifest.json',
@@ -80,6 +83,12 @@ foreach ( $required as $required_file ) {
 	if ( ! in_array( $required_file, $files, true ) ) {
 		$errors[] = 'Required source ZIP file missing: ' . $required_file;
 	}
+}
+
+try {
+	Codegenie_WordPress_Org_Asset_Manifest::from_zip( $zip, $root, $version );
+} catch ( RuntimeException $exception ) {
+	$errors[] = $exception->getMessage();
 }
 
 $zip->close();

@@ -43,6 +43,12 @@ The plugin requires no runtime Composer package, queue, cron job, or external Ja
 
 The existing verification token and DSN fields remain available as a manual fallback.
 
+== Screenshots ==
+
+1. Connector settings before connection, captured on a local WordPress test site with synthetic data.
+2. Administrator approval for a Pulse-first connection, showing the technical data categories shared after consent.
+3. Connector settings after a successful connection, showing the connection status and enabled plan capabilities.
+
 == Frequently Asked Questions ==
 
 = What data does the plugin send? =

@@ -3,6 +3,8 @@
  * Build a local, network-free WordPress.org SVN tree from the installation ZIP.
  */
 
+require_once __DIR__ . '/lib/wordpress-org-asset-manifest.php';
+
 if ( ! isset( $argv[1] ) || ! is_file( $argv[1] ) ) {
 	fwrite( STDERR, "Usage: php scripts/prepare-wordpress-org.php <plugin.zip>\n" );
 	exit( 2 );
@@ -147,65 +149,20 @@ try {
 		throw new RuntimeException( 'Unable to create assets dry-run directory.' );
 	}
 
-	if ( ! is_file( $asset_manifest ) ) {
-		throw new RuntimeException( 'WordPress.org asset manifest is missing.' );
-	}
-
-	$manifest_data = json_decode( (string) file_get_contents( $asset_manifest ), true );
-
-	if ( ! is_array( $manifest_data ) || ! isset( $manifest_data['assets'] ) || ! is_array( $manifest_data['assets'] ) ) {
-		throw new RuntimeException( 'WordPress.org asset manifest is invalid.' );
-	}
-
-	$missing_assets = array();
+	$manifest_data = Codegenie_WordPress_Org_Asset_Manifest::from_directory( $asset_manifest, $asset_root, $version );
+	$missing_assets = $manifest_data['publication_blockers'];
 	$copied_assets  = array();
 
 	foreach ( $manifest_data['assets'] as $asset ) {
-		if ( ! is_array( $asset ) || empty( $asset['filename'] ) || ! is_string( $asset['filename'] ) ) {
-			throw new RuntimeException( 'Invalid asset manifest entry.' );
-		}
-
 		$filename = $asset['filename'];
-		$required = ! empty( $asset['required'] );
-		$approved = isset( $asset['status'] ) && 'approved' === $asset['status'];
-
-		if ( 1 !== preg_match( '/^(?:icon-(?:128x128|256x256)|banner-(?:772x250|1544x500)|screenshot-[1-9][0-9]*)\.(?:png|jpg)$/D', $filename ) ) {
-			throw new RuntimeException( 'Unsupported WordPress.org asset filename: ' . $filename );
-		}
-
-		$source = $asset_root . '/' . $filename;
-
-		if ( ! $approved ) {
-			if ( $required ) {
-				$missing_assets[] = $filename . ' (human brand approval required)';
-			}
+		if ( 'approved' !== $asset['status'] ) {
 			continue;
 		}
 
-		if ( ! is_file( $source ) ) {
-			throw new RuntimeException( 'Approved asset file is missing: ' . $filename );
+		$source = $asset_root . '/' . $filename;
+		if ( ! copy( $source, $svn_assets . '/' . $filename ) ) {
+			throw new RuntimeException( 'Unable to copy approved WordPress.org asset: ' . $filename );
 		}
-
-		$dimensions = getimagesize( $source );
-		$width      = isset( $asset['width'] ) ? (int) $asset['width'] : 0;
-		$height     = isset( $asset['height'] ) ? (int) $asset['height'] : 0;
-
-		if ( false === $dimensions || $dimensions[0] !== $width || $dimensions[1] !== $height ) {
-			throw new RuntimeException( 'Asset dimensions do not match manifest: ' . $filename );
-		}
-
-		$maximum_size = 10 * 1024 * 1024;
-		if ( 0 === strpos( $filename, 'icon-' ) ) {
-			$maximum_size = 1024 * 1024;
-		} elseif ( 0 === strpos( $filename, 'banner-' ) ) {
-			$maximum_size = 4 * 1024 * 1024;
-		}
-
-		if ( filesize( $source ) > $maximum_size ) {
-			throw new RuntimeException( 'Asset exceeds WordPress.org size policy: ' . $filename );
-		}
-
-		copy( $source, $svn_assets . '/' . $filename );
 		$copied_assets[] = $filename;
 	}
 
@@ -254,9 +211,14 @@ try {
 
 	file_put_contents( $report_path, implode( "\n", $report ) . "\n" );
 
-	echo 'WordPress.org SVN dry-run OK: trunk and tags/' . $version . ' each match ' . count( $runtime ) . " installation files.\n";
+	echo 'WordPress.org SVN dry-run prepared: trunk and tags/' . $version . ' each match ' . count( $runtime ) . " installation files.\n";
 	echo 'Approved assets copied: ' . count( $copied_assets ) . '; missing required assets: ' . count( $missing_assets ) . ".\n";
 	echo 'No network request or SVN command was used.' . "\n";
+
+	if ( $missing_assets ) {
+		fwrite( STDERR, "WordPress.org publication BLOCKED: required human-supplied assets are still missing or unapproved.\n" );
+		exit( 3 );
+	}
 } catch ( Throwable $throwable ) {
 	fwrite( STDERR, $throwable->getMessage() . "\n" );
 	exit( 1 );

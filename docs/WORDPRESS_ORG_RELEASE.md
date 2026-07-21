@@ -32,7 +32,7 @@ Do not store any account password, SVN-specific password, API token, DSN or prod
 - [ ] Every `Contributors:` username is a valid WordPress.org account and has agreed to be listed.
 - [ ] Public support responsibility is assigned; security reports route to GitHub private vulnerability reporting.
 - [ ] Icons and banners are approved Codegenie brand assets, not generated approximations.
-- [ ] Screenshot captions exist in `readme.txt` and match numbered approved screenshots.
+- [ ] The three screenshot captions in `readme.txt` match approved screenshots of settings, explicit approval and successful connection.
 - [ ] Screenshots use only synthetic test data and show no secrets, tokens, nonces, cookies, email addresses, customer names, customer URLs or production dashboards.
 - [ ] The two deterministic builds have identical hashes and the sidecar checksum files match the uploaded artifacts.
 - [ ] A second maintainer reviews `dist/wordpress-org-svn-dry-run.report.txt`, file manifest and checksums.
@@ -55,7 +55,9 @@ dist/wordpress-org-svn-dry-run/
 └── trunk/            # exact runtime contents of the installation ZIP
 ```
 
-Only image entries marked `approved` in `wordpress-org/assets/manifest.json` are copied to `assets/`. Source manifests and approval documentation are never copied to SVN. The script rejects ZIP files, development tooling and mismatched trunk/tag content, and writes a file manifest, SHA-256 list and human-blocker report next to the tree.
+Only image entries marked `approved` with `privacy_review: approved` in `wordpress-org/assets/manifest.json` are copied to `assets/`. Source manifests and approval documentation are never copied to SVN. The shared validator rejects duplicate filenames, unsupported types or statuses, wrong PNG dimensions, missing approved files and assets without privacy approval. The script rejects ZIP files, development tooling and mismatched trunk/tag content, and writes a file manifest, SHA-256 list and human-blocker report next to the tree.
+
+Required assets with `status: missing` are valid source metadata but remain a publication blocker. In that state the dry-run writes its report and exits with status 3. This is intentional. Supply and review each real asset one by one, then change only the reviewed entry to `approved`. Never bypass this result with a generated approximation or an empty image.
 
 For an actual SVN checkout after WordPress.org approval, a maintainer copies the reviewed local `trunk/`, `tags/1.2.1/` and `assets/` contents to the corresponding top-level directories, reviews `svn status` and `svn diff`, and only then performs a separately authorized commit. Never copy the plugin ZIP itself to SVN.
 

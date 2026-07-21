@@ -3,6 +3,8 @@
  * Build a deterministic WordPress installation ZIP from a clean Git tree.
  */
 
+require_once __DIR__ . '/lib/wordpress-org-asset-manifest.php';
+
 $root        = dirname( __DIR__ );
 $allow_dirty = in_array( '--allow-dirty', $argv, true );
 $version     = '1.2.1';
@@ -52,6 +54,11 @@ function codegenie_run( $command, $environment = array() ) {
 
 try {
 	codegenie_run( array( PHP_BINARY, $root . '/scripts/check-versions.php' ) );
+	Codegenie_WordPress_Org_Asset_Manifest::from_directory(
+		$root . '/wordpress-org/assets/manifest.json',
+		$root . '/wordpress-org/assets',
+		$version
+	);
 	$status = codegenie_run( array( 'git', '-C', $root, 'status', '--porcelain', '--untracked-files=all' ) );
 
 	if ( '' !== $status && ! $allow_dirty ) {
@@ -179,6 +186,7 @@ try {
 		$source_prefix . 'docs/releases/' . $version . '.md',
 		$source_prefix . 'docs/WORDPRESS_ORG_RELEASE.md',
 		$source_prefix . 'scripts/build-release.php',
+		$source_prefix . 'scripts/lib/wordpress-org-asset-manifest.php',
 		$source_prefix . 'scripts/prepare-wordpress-org.php',
 		$source_prefix . 'tests/bootstrap.php',
 		$source_prefix . 'wordpress-org/assets/manifest.json',

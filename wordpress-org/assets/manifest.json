@@ -1,55 +1,77 @@
 {
-  "schema": 1,
-  "plugin": "codegenie-pulse-connector",
-  "policy": "Only human-approved Codegenie brand assets and screenshots containing synthetic data may be marked approved.",
+  "schema_version": 1,
+  "plugin_slug": "codegenie-pulse-connector",
+  "plugin_version": "1.2.1",
   "assets": [
     {
       "filename": "icon-128x128.png",
+      "type": "icon",
       "width": 128,
       "height": 128,
       "required": true,
-      "status": "missing_approval",
-      "purpose": "WordPress.org normal plugin icon"
+      "status": "missing",
+      "source": "human-codegenie-brand-artwork",
+      "privacy_review": "pending"
     },
     {
       "filename": "icon-256x256.png",
+      "type": "icon",
       "width": 256,
       "height": 256,
       "required": true,
-      "status": "missing_approval",
-      "purpose": "WordPress.org high-DPI plugin icon"
+      "status": "missing",
+      "source": "human-codegenie-brand-artwork",
+      "privacy_review": "pending"
     },
     {
       "filename": "banner-772x250.png",
+      "type": "banner",
       "width": 772,
       "height": 250,
       "required": true,
-      "status": "missing_approval",
-      "purpose": "WordPress.org normal plugin header"
+      "status": "missing",
+      "source": "human-codegenie-brand-artwork",
+      "privacy_review": "pending"
     },
     {
       "filename": "banner-1544x500.png",
+      "type": "banner",
       "width": 1544,
       "height": 500,
       "required": true,
-      "status": "missing_approval",
-      "purpose": "WordPress.org high-DPI plugin header"
+      "status": "missing",
+      "source": "human-codegenie-brand-artwork",
+      "privacy_review": "pending"
     },
     {
       "filename": "screenshot-1.png",
+      "type": "screenshot",
       "width": 1440,
       "height": 1080,
       "required": true,
-      "status": "missing_approval",
-      "purpose": "Connector settings page with synthetic disconnected state"
+      "status": "missing",
+      "source": "synthetic-local-wordpress-capture",
+      "privacy_review": "pending"
     },
     {
       "filename": "screenshot-2.png",
+      "type": "screenshot",
       "width": 1440,
       "height": 1080,
       "required": true,
-      "status": "missing_approval",
-      "purpose": "WordPress privacy policy suggestion with synthetic site data"
+      "status": "missing",
+      "source": "synthetic-local-wordpress-capture",
+      "privacy_review": "pending"
+    },
+    {
+      "filename": "screenshot-3.png",
+      "type": "screenshot",
+      "width": 1440,
+      "height": 1080,
+      "required": true,
+      "status": "missing",
+      "source": "synthetic-local-wordpress-capture",
+      "privacy_review": "pending"
     }
   ]
 }

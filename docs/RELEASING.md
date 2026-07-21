@@ -35,6 +35,8 @@ dist/codegenie-pulse-connector-wordpress-1.2.1-source.sha256
 
 The package must retain `LICENSE`, `license.txt`, `readme.txt`, `codegenie-pulse-connector.php`, `index.php`, `includes/`, and `uninstall.php`. It must not contain Git metadata, GitHub workflows, tests, scripts, Composer files/dependencies, reports, local configuration, or WordPress.org source assets.
 
+The source ZIP must contain `wordpress-org/assets/manifest.json` and the shared source-only manifest validator. A `missing` required asset is an honest and valid source state, but it blocks WordPress.org publication. It never causes a placeholder image to be generated or approved. The installation ZIP continues to exclude the complete `wordpress-org/` source directory.
+
 The build does not create a tag and does not publish to GitHub Releases or WordPress.org. Those are separate, explicitly authorized maintainer actions.
 
 ## Release preparation workflow
