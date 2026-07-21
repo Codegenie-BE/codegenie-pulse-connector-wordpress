@@ -8,6 +8,12 @@ DB_HOST="${4-localhost}"
 WP_VERSION="${5-7.0.2}"
 WP_TESTS_DIR="${WP_TESTS_DIR-/tmp/wordpress-tests-lib}"
 WP_CORE_DIR="${WP_CORE_DIR-/tmp/wordpress}"
+WP_UPSTREAM_VERSION="$WP_VERSION"
+
+# WordPress names the initial x.y.0 release archive and SVN tag x.y.
+if [[ "$WP_VERSION" =~ ^([0-9]+\.[0-9]+)\.0$ ]]; then
+	WP_UPSTREAM_VERSION="${BASH_REMATCH[1]}"
+fi
 
 download() {
 	if command -v curl >/dev/null 2>&1; then
@@ -36,18 +42,18 @@ require_command mktemp
 if [[ ! -d "$WP_CORE_DIR/wp-admin" ]]; then
 	mkdir -p "$WP_CORE_DIR"
 	tmp_archive="$(mktemp)"
-	download "https://wordpress.org/wordpress-${WP_VERSION}.tar.gz" "$tmp_archive"
+	download "https://wordpress.org/wordpress-${WP_UPSTREAM_VERSION}.tar.gz" "$tmp_archive"
 	tar --strip-components=1 -xzf "$tmp_archive" -C "$WP_CORE_DIR"
 	rm -f "$tmp_archive"
 fi
 
 if [[ ! -d "$WP_TESTS_DIR/includes" ]]; then
 	mkdir -p "$WP_TESTS_DIR"
-	svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_VERSION}/tests/phpunit/includes/" "$WP_TESTS_DIR/includes"
-	svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_VERSION}/tests/phpunit/data/" "$WP_TESTS_DIR/data"
+	svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_UPSTREAM_VERSION}/tests/phpunit/includes/" "$WP_TESTS_DIR/includes"
+	svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_UPSTREAM_VERSION}/tests/phpunit/data/" "$WP_TESTS_DIR/data"
 fi
 
-svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_VERSION}/wp-tests-config-sample.php" "$WP_TESTS_DIR/wp-tests-config-sample.php"
+svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_UPSTREAM_VERSION}/wp-tests-config-sample.php" "$WP_TESTS_DIR/wp-tests-config-sample.php"
 
 sed \
 	-e "s/youremptytestdbnamehere/${DB_NAME}/" \
@@ -66,4 +72,4 @@ if [[ "$DB_HOST" == *:* ]]; then
 fi
 mysql "${mysql_args[@]}" --execute="DROP DATABASE IF EXISTS \`${DB_NAME}\`; CREATE DATABASE \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-echo "Installed WordPress ${WP_VERSION} test suite in ${WP_TESTS_DIR}."
+echo "Installed WordPress ${WP_VERSION} test suite from upstream tag ${WP_UPSTREAM_VERSION} in ${WP_TESTS_DIR}."
