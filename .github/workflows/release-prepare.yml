@@ -173,7 +173,7 @@ jobs:
           wp-version: '7.0.2'
           strict: true
       - name: Upload prepared artifacts without publishing
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codegenie-pulse-connector-${{ needs.metadata.outputs.version }}-prepared
           path: |
