@@ -112,6 +112,14 @@ jobs:
           extensions: mysqli, openssl
           coverage: none
           tools: composer:v2
+      - name: Install WordPress test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends subversion default-mysql-client
+          command -v svn
+          svn --version --quiet
+          command -v mysql
+          mysql --version
       - name: Install locked development tools
         run: composer install --no-interaction --prefer-dist
       - name: Install WordPress test suite

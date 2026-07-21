@@ -20,6 +20,19 @@ download() {
 	fi
 }
 
+require_command() {
+	if ! command -v "$1" >/dev/null 2>&1; then
+		echo "$1 is required to install the WordPress test suite." >&2
+		exit 1
+	fi
+}
+
+require_command svn
+require_command mysql
+require_command tar
+require_command sed
+require_command mktemp
+
 if [[ ! -d "$WP_CORE_DIR/wp-admin" ]]; then
 	mkdir -p "$WP_CORE_DIR"
 	tmp_archive="$(mktemp)"

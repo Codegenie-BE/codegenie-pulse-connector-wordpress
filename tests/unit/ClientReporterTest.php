@@ -68,15 +68,27 @@ final class ClientReporterTest extends Codegenie_Pulse_Test_Case {
 		$this->assertSame( 'not_available', $nested['code'] );
 		$this->assertCount( 1, $GLOBALS['codegenie_test']['remote_calls'] );
 
-		$exception_handler = function () {};
-		$probe = function () {};
+		$exception_handler       = function () {};
+		$probe                   = function () {};
+		$probe_registered        = false;
+		$error_handler_registered = false;
 		set_exception_handler( $exception_handler );
-		$reporter->register_hooks();
-		$active = set_exception_handler( $probe );
-		$this->assertSame( $exception_handler, $active );
-		restore_exception_handler();
-		restore_exception_handler();
-		restore_error_handler();
+
+		try {
+			$reporter->register_hooks();
+			$error_handler_registered = true;
+			$active                   = set_exception_handler( $probe );
+			$probe_registered         = true;
+			$this->assertSame( $exception_handler, $active );
+		} finally {
+			if ( $probe_registered ) {
+				restore_exception_handler();
+			}
+			restore_exception_handler();
+			if ( $error_handler_registered ) {
+				restore_error_handler();
+			}
+		}
 	}
 
 	public function test_previous_error_handler_exception_is_not_swallowed() {
@@ -93,16 +105,44 @@ final class ClientReporterTest extends Codegenie_Pulse_Test_Case {
 		$reporter->capture_php_error( E_NOTICE, 'not captured in extended mode', __FILE__, 1 );
 	}
 
-	public function test_removed_strict_level_is_not_registered_on_php_84_or_newer() {
-		$options = $this->configuredOptions( array( 'error_capture_mode' => Codegenie_Pulse_Options::CAPTURE_DEBUG ) );
-		$reporter = new Codegenie_Pulse_Reporter( new Codegenie_Pulse_Client( $options ), $options, new Codegenie_Pulse_Redactor() );
-		$reporter->capture_php_error( 2048, 'legacy strict level', __FILE__, 1 );
+	public function test_strict_level_is_captured_only_before_php_84_when_enabled() {
+		$previous_mask = error_reporting();
 
-		if ( PHP_VERSION_ID >= 80400 ) {
-			$this->assertCount( 0, $GLOBALS['codegenie_test']['remote_calls'] );
-		} else {
-			$this->assertCount( 1, $GLOBALS['codegenie_test']['remote_calls'] );
+		try {
+			// PHPUnit and CI may exclude the legacy E_STRICT bit from their process mask.
+			// Use its numeric value because referencing E_STRICT is deprecated on PHP 8.4+.
+			error_reporting( $previous_mask | 2048 );
+			$this->assertSame( 2048, error_reporting() & 2048 );
+
+			$options = $this->configuredOptions( array( 'error_capture_mode' => Codegenie_Pulse_Options::CAPTURE_DEBUG ) );
+			$reporter = new Codegenie_Pulse_Reporter( new Codegenie_Pulse_Client( $options ), $options, new Codegenie_Pulse_Redactor() );
+			$reporter->capture_php_error( 2048, 'legacy strict level', __FILE__, 1 );
+
+			$this->assertCount( PHP_VERSION_ID < 80400 ? 1 : 0, $GLOBALS['codegenie_test']['remote_calls'] );
+		} finally {
+			error_reporting( $previous_mask );
 		}
+
+		$this->assertSame( $previous_mask, error_reporting() );
+	}
+
+	public function test_suppressed_non_fatal_level_is_not_sent() {
+		$previous_mask = error_reporting();
+
+		try {
+			error_reporting( $previous_mask & ~E_WARNING );
+			$this->assertSame( 0, error_reporting() & E_WARNING );
+
+			$options = $this->configuredOptions( array( 'error_capture_mode' => Codegenie_Pulse_Options::CAPTURE_EXTENDED ) );
+			$reporter = new Codegenie_Pulse_Reporter( new Codegenie_Pulse_Client( $options ), $options, new Codegenie_Pulse_Redactor() );
+			$reporter->capture_php_error( E_WARNING, 'suppressed warning', __FILE__, 1 );
+
+			$this->assertCount( 0, $GLOBALS['codegenie_test']['remote_calls'] );
+		} finally {
+			error_reporting( $previous_mask );
+		}
+
+		$this->assertSame( $previous_mask, error_reporting() );
 	}
 
 	public function test_capture_modes_sampling_deduplication_limit_and_previous_handler_delegation() {
