@@ -163,9 +163,9 @@ final class Codegenie_Pulse_Deployment_Tracker {
 				$file = WP_PLUGIN_DIR . '/' . ltrim( $item, '/' );
 
 				if ( is_readable( $file ) ) {
-					$data = get_file_data( $file, array( 'version' => 'Version' ), 'plugin' );
-					$slug = dirname( $item );
-					$slug = '.' === $slug ? basename( $item, '.php' ) : $slug;
+					$data       = get_file_data( $file, array( 'version' => 'Version' ), 'plugin' );
+					$slug       = dirname( $item );
+					$slug       = '.' === $slug ? basename( $item, '.php' ) : $slug;
 					$versions[] = sanitize_key( $slug ) . '@' . sanitize_text_field( isset( $data['version'] ) ? $data['version'] : '' );
 				}
 			} elseif ( 'theme' === $type ) {

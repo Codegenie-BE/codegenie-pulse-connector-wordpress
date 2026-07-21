@@ -1,0 +1,130 @@
+name: QA and reproducible package
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    name: PHP ${{ matrix.php }} QA
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.3', '8.5']
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, json, mbstring, openssl, zip
+          coverage: none
+          tools: composer:v2
+      - name: Install locked development tools
+        run: composer install --no-interaction --prefer-dist
+      - name: Run complete source QA
+        run: composer qa
+
+  wordpress-integration:
+    name: WordPress ${{ matrix.wordpress }} / PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --user=root --password=root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - wordpress: '6.2.0'
+            php: '7.4'
+          - wordpress: '7.0.2'
+            php: '7.4'
+          - wordpress: '7.0.2'
+            php: '8.3'
+          - wordpress: '7.0.2'
+            php: '8.5'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, openssl
+          coverage: none
+          tools: composer:v2
+      - name: Install locked development tools
+        run: composer install --no-interaction --prefer-dist
+      - name: Install WordPress test suite
+        run: bash scripts/install-wp-tests.sh wordpress_test root root 127.0.0.1:3306 ${{ matrix.wordpress }}
+      - name: Run WordPress integration tests
+        env:
+          WP_TESTS_DIR: /tmp/wordpress-tests-lib
+        run: vendor/bin/phpunit --configuration tests/integration/phpunit.xml.dist
+
+  package:
+    name: Build and inspect installation ZIP
+    runs-on: ubuntu-latest
+    needs: [qa, wordpress-integration]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: zip
+          coverage: none
+          tools: none
+      - name: Build deterministic package
+        run: php scripts/build-release.php
+      - name: Test ZIP integrity
+        run: |
+          unzip -t dist/codegenie-pulse-connector-1.2.1.zip
+          unzip -t dist/codegenie-pulse-connector-wordpress-1.2.1-source.zip
+      - name: Verify reproducibility
+        run: |
+          first_install="$(sha256sum dist/codegenie-pulse-connector-1.2.1.zip | cut -d ' ' -f 1)"
+          first_source="$(sha256sum dist/codegenie-pulse-connector-wordpress-1.2.1-source.zip | cut -d ' ' -f 1)"
+          php scripts/build-release.php
+          second_install="$(sha256sum dist/codegenie-pulse-connector-1.2.1.zip | cut -d ' ' -f 1)"
+          second_source="$(sha256sum dist/codegenie-pulse-connector-wordpress-1.2.1-source.zip | cut -d ' ' -f 1)"
+          test "$first_install" = "$second_install"
+          test "$first_source" = "$second_source"
+      - name: Extract built package for Plugin Check
+        run: unzip -q dist/codegenie-pulse-connector-1.2.1.zip -d plugin-build
+      - name: Run official Plugin Check against built package
+        uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: plugin-build/codegenie-pulse-connector
+          slug: codegenie-pulse-connector
+          wp-version: latest
+          strict: true
+      - name: Upload reviewed installation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codegenie-pulse-connector-1.2.1-release-candidate
+          path: |
+            dist/codegenie-pulse-connector-1.2.1.zip
+            dist/codegenie-pulse-connector-1.2.1.files.txt
+            dist/codegenie-pulse-connector-1.2.1.sha256
+            dist/codegenie-pulse-connector-wordpress-1.2.1-source.zip
+            dist/codegenie-pulse-connector-wordpress-1.2.1-source.files.txt
+            dist/codegenie-pulse-connector-wordpress-1.2.1-source.sha256
+          if-no-files-found: error
+          retention-days: 14

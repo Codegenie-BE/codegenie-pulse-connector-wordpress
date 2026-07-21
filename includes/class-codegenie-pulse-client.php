@@ -87,10 +87,10 @@ final class Codegenie_Pulse_Client {
 				'timeout'     => $timeout,
 				'redirection' => 0,
 				'headers'     => array(
-					'Accept'                     => 'application/json',
-					'Content-Type'               => 'application/json; charset=utf-8',
-					'Content-Length'             => (string) strlen( $json ),
-					'X-Codegenie-Pulse-Client'   => 'wordpress/' . CODEGENIE_PULSE_CONNECTOR_VERSION,
+					'Accept'                   => 'application/json',
+					'Content-Type'             => 'application/json; charset=utf-8',
+					'Content-Length'           => (string) strlen( $json ),
+					'X-Codegenie-Pulse-Client' => 'wordpress/' . CODEGENIE_PULSE_CONNECTOR_VERSION,
 				),
 				'body'        => $json,
 				'data_format' => 'body',
@@ -163,11 +163,11 @@ final class Codegenie_Pulse_Client {
 	 * @return array<string, mixed>
 	 */
 	private function record_success( $kind, $status ) {
-		$state                          = $this->options->state();
-		$state['last_success_at']       = gmdate( 'c' );
-		$state['last_success_kind']     = $kind;
-		$state['last_http_status']      = $status;
-		$state[ 'last_' . $kind . '_success_at' ]      = $state['last_success_at'];
+		$state                                    = $this->options->state();
+		$state['last_success_at']                 = gmdate( 'c' );
+		$state['last_success_kind']               = $kind;
+		$state['last_http_status']                = $status;
+		$state[ 'last_' . $kind . '_success_at' ] = $state['last_success_at'];
 		$state[ 'last_' . $kind . '_failure_message' ] = '';
 		$state[ 'last_' . $kind . '_failure_code' ]    = '';
 
@@ -191,14 +191,14 @@ final class Codegenie_Pulse_Client {
 	 * @return array<string, mixed>
 	 */
 	private function record_failure( $kind, $status, $code, $message ) {
-		$state                         = $this->options->state();
-		$state['last_failure_at']      = gmdate( 'c' );
-		$state['last_failure_kind']    = $kind;
-		$state['last_failure_code']    = $code;
-		$state['last_failure_message'] = $message;
-		$state['last_http_status']     = $status;
-		$state[ 'last_' . $kind . '_failure_at' ]      = $state['last_failure_at'];
-		$state[ 'last_' . $kind . '_failure_code' ]    = $code;
+		$state                                      = $this->options->state();
+		$state['last_failure_at']                   = gmdate( 'c' );
+		$state['last_failure_kind']                 = $kind;
+		$state['last_failure_code']                 = $code;
+		$state['last_failure_message']              = $message;
+		$state['last_http_status']                  = $status;
+		$state[ 'last_' . $kind . '_failure_at' ]   = $state['last_failure_at'];
+		$state[ 'last_' . $kind . '_failure_code' ] = $code;
 		$state[ 'last_' . $kind . '_failure_message' ] = $message;
 
 		$this->options->update_state( $state );

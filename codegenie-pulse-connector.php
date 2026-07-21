@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Codegenie Pulse Connector
  * Description:       Verbind WordPress veilig met Codegenie Pulse voor foutmonitoring, websiteverificatie en deployment tracking.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Requires at least: 6.2
  * Requires PHP:      7.4
  * Author:            Codegenie
@@ -10,14 +10,13 @@
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       codegenie-pulse-connector
- * Domain Path:       /languages
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'CODEGENIE_PULSE_CONNECTOR_VERSION', '1.2.0' );
+define( 'CODEGENIE_PULSE_CONNECTOR_VERSION', '1.2.1' );
 define( 'CODEGENIE_PULSE_CONNECTOR_FILE', __FILE__ );
 define( 'CODEGENIE_PULSE_CONNECTOR_DIR', plugin_dir_path( __FILE__ ) );
 

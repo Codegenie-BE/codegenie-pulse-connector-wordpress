@@ -53,11 +53,11 @@ final class Codegenie_Pulse_Redactor {
 
 		$patterns = array(
 			'#(/api/ingest/(?:errors|deployments)/)[A-Za-z0-9]{64}#i' => '$1[redacted]',
-			'/\b(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/i'                 => '$1[redacted]',
+			'/\b(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/i'    => '$1[redacted]',
 			'/\b(password|passwd|secret|token|api[_-]?key|authorization)\b\s*[:=]\s*([^\s,;&]+)/i' => '$1=[redacted]',
 			'/([?&](?:password|passwd|secret|token|api[_-]?key|signature|authorization)=)[^&#\s]*/i' => '$1[redacted]',
-			'/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i'              => '[redacted-email]',
-			'/\b[A-Za-z0-9_-]{48,}\b/'                               => '[redacted-long-value]',
+			'/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i' => '[redacted-email]',
+			'/\b[A-Za-z0-9_-]{48,}\b/'                 => '[redacted-long-value]',
 		);
 
 		foreach ( $patterns as $pattern => $replacement ) {
@@ -111,7 +111,8 @@ final class Codegenie_Pulse_Redactor {
 			return null;
 		}
 
-		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/';
+		// The raw URI is parsed to a path, redacted, length-limited, and escaped below.
+		$request_uri  = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/'; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$request_path = wp_parse_url( (string) $request_uri, PHP_URL_PATH );
 		$request_path = is_string( $request_path ) && 0 === strpos( $request_path, '/' ) ? $request_path : '/';
 		$request_path = preg_replace( '/[A-Z0-9._%+-]+(?:@|%40)[A-Z0-9.-]+\.[A-Z]{2,}/i', 'redacted-email', $request_path );
@@ -140,7 +141,14 @@ final class Codegenie_Pulse_Redactor {
 
 		$clean = $this->context_level( $context, 0 );
 
-		while ( strlen( (string) wp_json_encode( $clean ) ) > 7000 && count( $clean ) > 0 ) {
+		while ( true ) {
+			$encoded_length = strlen( (string) wp_json_encode( $clean ) );
+			$item_count     = count( $clean );
+
+			if ( $encoded_length <= 7000 || 0 === $item_count ) {
+				break;
+			}
+
 			unset( $clean['_truncated'] );
 
 			if ( empty( $clean ) ) {

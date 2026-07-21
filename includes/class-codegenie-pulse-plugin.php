@@ -32,9 +32,27 @@ final class Codegenie_Pulse_Plugin {
 	}
 
 	/**
+	 * @param bool $network_wide Whether this is a multisite network activation.
 	 * @return void
 	 */
-	public static function activate() {
+	public static function activate( $network_wide = false ) {
+		if ( is_multisite() && $network_wide ) {
+			$site_ids = get_sites(
+				array(
+					'fields' => 'ids',
+					'number' => 0,
+				)
+			);
+
+			foreach ( $site_ids as $site_id ) {
+				switch_to_blog( (int) $site_id );
+				Codegenie_Pulse_Options::install_defaults();
+				restore_current_blog();
+			}
+
+			return;
+		}
+
 		Codegenie_Pulse_Options::install_defaults();
 	}
 
@@ -47,12 +65,6 @@ final class Codegenie_Pulse_Plugin {
 		}
 
 		$this->booted = true;
-
-		load_plugin_textdomain(
-			'codegenie-pulse-connector',
-			false,
-			dirname( plugin_basename( CODEGENIE_PULSE_CONNECTOR_FILE ) ) . '/languages'
-		);
 
 		$secret_store       = new Codegenie_Pulse_Secret_Store();
 		$this->options      = new Codegenie_Pulse_Options( $secret_store );

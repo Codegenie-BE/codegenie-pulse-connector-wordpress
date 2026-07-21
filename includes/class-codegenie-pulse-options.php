@@ -47,7 +47,7 @@ final class Codegenie_Pulse_Options {
 			'pulse_capabilities'        => array(),
 			'connected_at'              => '',
 			'automatic_error_reporting' => 1,
-			'error_capture_mode'         => self::CAPTURE_PRODUCTION,
+			'error_capture_mode'        => self::CAPTURE_PRODUCTION,
 			'capture_mail_failures'     => 1,
 			'capture_rest_errors'       => 1,
 			'deployment_tracking'       => 1,
@@ -93,7 +93,7 @@ final class Codegenie_Pulse_Options {
 	 * @param mixed  $default Default value.
 	 * @return mixed
 	 */
-	public function get( $key, $default = null ) {
+	public function get( $key, $default = null ) { // phpcs:ignore Universal.NamingConventions.NoReservedKeywordParameterNames.defaultFound -- Preserve the public method signature.
 		$settings = $this->all();
 
 		return array_key_exists( $key, $settings ) ? $settings[ $key ] : $default;
@@ -196,7 +196,7 @@ final class Codegenie_Pulse_Options {
 		}
 
 		$next['verification_token']        = $verification_token;
-		$next['error_capture_mode']         = $capture_mode;
+		$next['error_capture_mode']        = $capture_mode;
 		$next['automatic_error_reporting'] = self::CAPTURE_OFF === $capture_mode ? 0 : 1;
 		$next['capture_mail_failures']     = empty( $input['capture_mail_failures'] ) ? 0 : 1;
 		$next['capture_rest_errors']       = empty( $input['capture_rest_errors'] ) ? 0 : 1;
@@ -345,11 +345,22 @@ final class Codegenie_Pulse_Options {
 		$next['pulse_plan_label']          = isset( $configuration['plan_label'] ) && is_string( $configuration['plan_label'] ) ? substr( sanitize_text_field( $configuration['plan_label'] ), 0, 64 ) : '';
 		$next['pulse_capabilities']        = $normalized_capabilities;
 		$next['connected_at']              = gmdate( 'c' );
-		$next['error_capture_mode']         = '' !== $dsn ? self::CAPTURE_PRODUCTION : self::CAPTURE_OFF;
+		$next['error_capture_mode']        = '' !== $dsn ? self::CAPTURE_PRODUCTION : self::CAPTURE_OFF;
 		$next['automatic_error_reporting'] = '' !== $dsn ? 1 : 0;
 		$next['deployment_tracking']       = '' !== $dsn && $normalized_capabilities['deployment_tracking'] ? 1 : 0;
 
 		update_option( self::OPTION_NAME, $next, false );
+
+		if ( get_option( self::OPTION_NAME, array() ) !== $next ) {
+			// A failed or filtered partial write must not be reported as a successful exchange.
+			update_option( self::OPTION_NAME, $current, false );
+
+			return new WP_Error(
+				'codegenie_pulse_storage_failed',
+				__( 'De ontvangen configuratie kon niet volledig worden opgeslagen. Controleer de database en probeer opnieuw.', 'codegenie-pulse-connector' )
+			);
+		}
+
 		$this->reset_runtime_state();
 
 		return true;
@@ -373,7 +384,7 @@ final class Codegenie_Pulse_Options {
 		$settings['pulse_plan_label']          = '';
 		$settings['pulse_capabilities']        = array();
 		$settings['connected_at']              = '';
-		$settings['error_capture_mode']         = self::CAPTURE_OFF;
+		$settings['error_capture_mode']        = self::CAPTURE_OFF;
 		$settings['automatic_error_reporting'] = 0;
 		$settings['deployment_tracking']       = 0;
 

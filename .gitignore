@@ -1,0 +1,16 @@
+/vendor/
+/dist/
+.phpunit.result.cache
+.phpcs-cache
+/coverage/
+/reports/
+/.idea/
+/.vscode/
+/.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+.env
+.env.*
+!.env.example

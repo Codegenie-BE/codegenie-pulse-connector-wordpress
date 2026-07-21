@@ -82,8 +82,8 @@ final class Codegenie_Pulse_Connection {
 				'site_proof'        => $site_proof,
 				'capabilities'      => array(
 					'website_verification' => true,
-					'error_monitoring'      => true,
-					'deployment_tracking'   => true,
+					'error_monitoring'     => true,
+					'deployment_tracking'  => true,
 				),
 			)
 		);

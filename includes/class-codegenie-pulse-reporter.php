@@ -53,6 +53,8 @@ final class Codegenie_Pulse_Reporter {
 		register_shutdown_function( array( $this, 'capture_shutdown_error' ) );
 
 		if ( in_array( $this->options->capture_mode(), array( Codegenie_Pulse_Options::CAPTURE_EXTENDED, Codegenie_Pulse_Options::CAPTURE_DEBUG ), true ) ) {
+			// The configured error-capture feature deliberately chains PHP's existing handler.
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler
 			$this->previous_error_handler = set_error_handler(
 				array( $this, 'capture_php_error' ),
 				E_ALL
@@ -108,6 +110,7 @@ final class Codegenie_Pulse_Reporter {
 			$this->send_payload( $payload, false, true );
 		} catch ( Throwable $throwable ) {
 			// Monitoring must never change the website's existing error behavior.
+			unset( $throwable );
 		}
 
 		return $this->delegate_to_previous_handler( $arguments );
@@ -257,7 +260,7 @@ final class Codegenie_Pulse_Reporter {
 			return $response;
 		}
 
-		$route = is_object( $request ) && method_exists( $request, 'get_route' )
+		$route       = is_object( $request ) && method_exists( $request, 'get_route' )
 			? (string) $request->get_route()
 			: '';
 		$route_parts = array_values( array_filter( explode( '/', trim( $route, '/' ) ) ) );
@@ -387,6 +390,8 @@ final class Codegenie_Pulse_Reporter {
 			return false;
 		}
 
+		// Read the configured mask without changing it; suppressed errors must retain existing behavior.
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.prevent_path_disclosure_error_reporting,WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_error_reporting
 		if ( 0 === ( error_reporting() & $severity ) ) {
 			return false;
 		}
@@ -412,10 +417,17 @@ final class Codegenie_Pulse_Reporter {
 		}
 
 		if ( Codegenie_Pulse_Options::CAPTURE_DEBUG === $this->options->capture_mode() ) {
-			return array_merge(
+			$debug_types = array_merge(
 				$warnings,
-				array( E_NOTICE, E_USER_NOTICE, E_DEPRECATED, E_USER_DEPRECATED, E_STRICT )
+				array( E_NOTICE, E_USER_NOTICE, E_DEPRECATED, E_USER_DEPRECATED )
 			);
+
+			// E_STRICT (2048) was deprecated and removed as a distinct level in PHP 8.4.
+			if ( PHP_VERSION_ID < 80400 ) {
+				$debug_types[] = 2048;
+			}
+
+			return $debug_types;
 		}
 
 		return array();
@@ -447,7 +459,7 @@ final class Codegenie_Pulse_Reporter {
 				return 'PHPDeprecated';
 			case E_USER_DEPRECATED:
 				return 'PHPUserDeprecated';
-			case E_STRICT:
+			case 2048: // E_STRICT on PHP versions before 8.4.
 				return 'PHPStrict';
 			default:
 				return 'PHPError';
@@ -472,7 +484,7 @@ final class Codegenie_Pulse_Reporter {
 				return 'E_DEPRECATED';
 			case E_USER_DEPRECATED:
 				return 'E_USER_DEPRECATED';
-			case E_STRICT:
+			case 2048: // E_STRICT on PHP versions before 8.4.
 				return 'E_STRICT';
 			default:
 				return 'E_UNKNOWN';
@@ -509,10 +521,10 @@ final class Codegenie_Pulse_Reporter {
 	 * @return bool True when the event was already sampled recently.
 	 */
 	private function was_recently_sampled( $fingerprint ) {
-		$window = (int) apply_filters( 'codegenie_pulse_non_fatal_sample_seconds', 60 );
-		$window = max( 1, min( 3600, $window ) );
-		$now    = time();
-		$stored = get_transient( Codegenie_Pulse_Options::SAMPLE_KEY );
+		$window  = (int) apply_filters( 'codegenie_pulse_non_fatal_sample_seconds', 60 );
+		$window  = max( 1, min( 3600, $window ) );
+		$now     = time();
+		$stored  = get_transient( Codegenie_Pulse_Options::SAMPLE_KEY );
 		$samples = is_array( $stored ) ? $stored : array();
 
 		foreach ( $samples as $key => $timestamp ) {

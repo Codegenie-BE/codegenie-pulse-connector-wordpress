@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "plugin": "codegenie-pulse-connector",
+  "policy": "Only human-approved Codegenie brand assets and screenshots containing synthetic data may be marked approved.",
+  "assets": [
+    {
+      "filename": "icon-128x128.png",
+      "width": 128,
+      "height": 128,
+      "required": true,
+      "status": "missing_approval",
+      "purpose": "WordPress.org normal plugin icon"
+    },
+    {
+      "filename": "icon-256x256.png",
+      "width": 256,
+      "height": 256,
+      "required": true,
+      "status": "missing_approval",
+      "purpose": "WordPress.org high-DPI plugin icon"
+    },
+    {
+      "filename": "banner-772x250.png",
+      "width": 772,
+      "height": 250,
+      "required": true,
+      "status": "missing_approval",
+      "purpose": "WordPress.org normal plugin header"
+    },
+    {
+      "filename": "banner-1544x500.png",
+      "width": 1544,
+      "height": 500,
+      "required": true,
+      "status": "missing_approval",
+      "purpose": "WordPress.org high-DPI plugin header"
+    },
+    {
+      "filename": "screenshot-1.png",
+      "width": 1440,
+      "height": 1080,
+      "required": true,
+      "status": "missing_approval",
+      "purpose": "Connector settings page with synthetic disconnected state"
+    },
+    {
+      "filename": "screenshot-2.png",
+      "width": 1440,
+      "height": 1080,
+      "required": true,
+      "status": "missing_approval",
+      "purpose": "WordPress privacy policy suggestion with synthetic site data"
+    }
+  ]
+}

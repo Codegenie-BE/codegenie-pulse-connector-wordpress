@@ -1,0 +1,192 @@
+name: Prepare release artifacts
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact release version without the v prefix
+        required: true
+        default: '1.2.1'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-prepare-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Validate release identity
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: none
+      - name: Resolve and validate version
+        id: release
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            test "${GITHUB_REF_NAME}" = "v${version}"
+          else
+            version="${REQUESTED_VERSION}"
+          fi
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          php scripts/check-release-version.php "${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+  source-qa:
+    name: PHP ${{ matrix.php }} source QA
+    needs: metadata
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.3', '8.5']
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, json, mbstring, openssl, zip
+          coverage: none
+          tools: composer:v2
+      - name: Validate Composer metadata
+        run: composer validate --strict
+      - name: Install locked development tools
+        run: composer install --no-interaction --prefer-dist
+      - name: Run complete source QA
+        run: composer qa
+
+  wordpress-integration:
+    name: WordPress ${{ matrix.wordpress }} / PHP ${{ matrix.php }}
+    needs: metadata
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --user=root --password=root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - wordpress: '6.2.0'
+            php: '7.4'
+          - wordpress: '7.0.2'
+            php: '7.4'
+          - wordpress: '7.0.2'
+            php: '8.3'
+          - wordpress: '7.0.2'
+            php: '8.5'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, openssl
+          coverage: none
+          tools: composer:v2
+      - name: Install locked development tools
+        run: composer install --no-interaction --prefer-dist
+      - name: Install WordPress test suite
+        run: bash scripts/install-wp-tests.sh wordpress_test root root 127.0.0.1:3306 ${{ matrix.wordpress }}
+      - name: Run WordPress integration tests
+        env:
+          WP_TESTS_DIR: /tmp/wordpress-tests-lib
+        run: vendor/bin/phpunit --configuration tests/integration/phpunit.xml.dist
+
+  package:
+    name: Build and inspect release artifacts
+    needs: [metadata, source-qa, wordpress-integration]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: zip
+          coverage: none
+          tools: none
+      - name: Validate release identity
+        run: php scripts/check-release-version.php "${RELEASE_VERSION}"
+      - name: Build deterministic artifacts
+        run: php scripts/build-release.php
+      - name: Record first checksums
+        run: |
+          sha256sum "dist/codegenie-pulse-connector-${RELEASE_VERSION}.zip" > /tmp/install-first.sha256
+          sha256sum "dist/codegenie-pulse-connector-wordpress-${RELEASE_VERSION}-source.zip" > /tmp/source-first.sha256
+      - name: Verify ZIP integrity and policy
+        run: |
+          unzip -t "dist/codegenie-pulse-connector-${RELEASE_VERSION}.zip"
+          unzip -t "dist/codegenie-pulse-connector-wordpress-${RELEASE_VERSION}-source.zip"
+          php scripts/verify-package.php "dist/codegenie-pulse-connector-${RELEASE_VERSION}.zip"
+          php scripts/verify-source-package.php "dist/codegenie-pulse-connector-wordpress-${RELEASE_VERSION}-source.zip" "${RELEASE_VERSION}"
+      - name: Build a second time and prove reproducibility
+        run: |
+          php scripts/build-release.php
+          sha256sum --check /tmp/install-first.sha256
+          sha256sum --check /tmp/source-first.sha256
+          {
+            echo "Release ${RELEASE_VERSION} reproducibility proof"
+            cat /tmp/install-first.sha256
+            cat /tmp/source-first.sha256
+          } > dist/reproducibility.txt
+      - name: Build read-only WordPress.org SVN dry-run
+        run: php scripts/prepare-wordpress-org.php "dist/codegenie-pulse-connector-${RELEASE_VERSION}.zip"
+      - name: Extract built plugin for Plugin Check
+        run: unzip -q "dist/codegenie-pulse-connector-${RELEASE_VERSION}.zip" -d plugin-build
+      - name: Run official Plugin Check strict
+        uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: plugin-build/codegenie-pulse-connector
+          slug: codegenie-pulse-connector
+          wp-version: '7.0.2'
+          strict: true
+      - name: Upload prepared artifacts without publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: codegenie-pulse-connector-${{ needs.metadata.outputs.version }}-prepared
+          path: |
+            dist/codegenie-pulse-connector-${{ needs.metadata.outputs.version }}.zip
+            dist/codegenie-pulse-connector-${{ needs.metadata.outputs.version }}.files.txt
+            dist/codegenie-pulse-connector-${{ needs.metadata.outputs.version }}.sha256
+            dist/codegenie-pulse-connector-wordpress-${{ needs.metadata.outputs.version }}-source.zip
+            dist/codegenie-pulse-connector-wordpress-${{ needs.metadata.outputs.version }}-source.files.txt
+            dist/codegenie-pulse-connector-wordpress-${{ needs.metadata.outputs.version }}-source.sha256
+            dist/reproducibility.txt
+            dist/wordpress-org-svn-dry-run/
+            dist/wordpress-org-svn-dry-run.files.txt
+            dist/wordpress-org-svn-dry-run.sha256
+            dist/wordpress-org-svn-dry-run.report.txt
+          if-no-files-found: error
+          retention-days: 30

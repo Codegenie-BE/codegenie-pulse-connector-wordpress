@@ -19,15 +19,15 @@ function codegenie_pulse_connector_delete_site_data() {
 }
 
 if ( is_multisite() ) {
-	$site_ids = get_sites(
+	$codegenie_pulse_site_ids = get_sites(
 		array(
 			'fields' => 'ids',
 			'number' => 0,
 		)
 	);
 
-	foreach ( $site_ids as $site_id ) {
-		switch_to_blog( (int) $site_id );
+	foreach ( $codegenie_pulse_site_ids as $codegenie_pulse_site_id ) {
+		switch_to_blog( (int) $codegenie_pulse_site_id );
 		codegenie_pulse_connector_delete_site_data();
 		restore_current_blog();
 	}

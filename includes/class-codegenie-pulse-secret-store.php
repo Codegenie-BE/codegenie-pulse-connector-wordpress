@@ -115,4 +115,3 @@ final class Codegenie_Pulse_Secret_Store {
 		return hash_hmac( 'sha256', self::AAD, wp_salt( 'auth' ), true );
 	}
 }
-

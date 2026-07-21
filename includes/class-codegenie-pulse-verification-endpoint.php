@@ -31,7 +31,8 @@ final class Codegenie_Pulse_Verification_Endpoint {
 	 * @return void
 	 */
 	public function maybe_serve_token() {
-		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
+		// The raw URI is parsed to an exact, constant path before any response is served.
+		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$path        = wp_parse_url( (string) $request_uri, PHP_URL_PATH );
 
 		if ( '/.well-known/codegenie-pulse.txt' !== $path ) {
@@ -65,4 +66,3 @@ final class Codegenie_Pulse_Verification_Endpoint {
 		exit;
 	}
 }
-
