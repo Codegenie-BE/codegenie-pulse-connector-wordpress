@@ -10,6 +10,7 @@ final class DeploymentUninstallTest extends Codegenie_Pulse_Test_Case {
 		$this->assertSame( '1.2.1', $result['version'] );
 		$this->assertSame( 'no', $result['settings_autoload'] );
 		$this->assertSame( 'no', $result['state_autoload'] );
+		$this->assertSame( 0, $result['remote_calls'], 'Activation must not perform an outbound request.' );
 	}
 
 	public function test_deployment_idempotency_is_stable_for_the_same_minute() {
@@ -23,6 +24,12 @@ final class DeploymentUninstallTest extends Codegenie_Pulse_Test_Case {
 		$second = json_decode( $GLOBALS['codegenie_test']['remote_calls'][1]['args']['body'], true );
 		$this->assertSame( $first['idempotency_key'], $second['idempotency_key'] );
 		$this->assertMatchesRegularExpression( '/^wp-[a-f0-9]{40}$/', $first['idempotency_key'] );
+		$this->assertSame( 'WordPress', $first['deployed_by'] );
+		$this->assertSame( 'wordpress_plugin_activation', $first['source'] );
+		$this->assertLessThanOrEqual( 255, strlen( $first['repository'] ) );
+		if ( isset( $first['version'] ) ) {
+			$this->assertLessThanOrEqual( 120, strlen( $first['version'] ) );
+		}
 	}
 
 	public function test_network_activation_installs_defaults_on_every_multisite_site() {

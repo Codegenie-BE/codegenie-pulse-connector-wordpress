@@ -12,7 +12,17 @@ final class ConnectionAdminTest extends Codegenie_Pulse_Test_Case {
 		$this->assertSame( 1, $response->data['protocol_version'] );
 		$this->assertSame( 'no-store, private', $response->headers['Cache-Control'] );
 		$this->assertSame( 'no-cache', $response->headers['Pragma'] );
+		$this->assertSame( 'nosniff', $response->headers['X-Content-Type-Options'] );
 		$this->assertArrayNotHasKey( 'dsn', $response->data );
+		$this->assertSame(
+			array(
+				'website_verification' => true,
+				'error_monitoring'     => true,
+				'deployment_tracking'  => true,
+			),
+			$response->data['capabilities']
+		);
+		$this->assertStringNotContainsString( 'site_proof', $response->data['authorize_url'] );
 	}
 
 	public function test_exchange_payload_and_dashboard_url_stay_on_validated_origin() {
@@ -38,13 +48,87 @@ final class ConnectionAdminTest extends Codegenie_Pulse_Test_Case {
 		$this->assertSame( 'https://pulse.example/api/connectors/wordpress/exchange', $call['url'] );
 		$this->assertSame( 0, $call['args']['redirection'] );
 		$payload = json_decode( $call['args']['body'], true );
+		$this->assertSame( (string) strlen( $call['args']['body'] ), $call['args']['headers']['Content-Length'] );
+		$this->assertSame( 'application/json; charset=utf-8', $call['args']['headers']['Content-Type'] );
 		$this->assertSame( 'codegenie-pulse-connector-wordpress', $payload['connector'] );
+		$this->assertSame( 1, $payload['protocol_version'] );
+		$this->assertSame( str_repeat( 'R', 64 ), $payload['request_token'] );
+		$this->assertSame( str_repeat( 'C', 48 ), $payload['challenge_id'] );
+		$this->assertMatchesRegularExpression( '/^[a-f0-9]{64}$/', $payload['site_proof'] );
 		$this->assertSame( 'https://wordpress.example', $payload['site_url'] );
 		$this->assertSame( 'Synthetic Test Site', $payload['site_name'] );
 		$this->assertSame( 'production', $payload['environment'] );
 		$this->assertFalse( $payload['is_multisite'] );
 		$this->assertArrayNotHasKey( 'plugins', $payload );
 		$this->assertArrayNotHasKey( 'dsn', $payload );
+	}
+
+	/**
+	 * @dataProvider rejectedExchangeStatusProvider
+	 */
+	public function test_rejected_exchange_statuses_use_local_token_safe_messages( $status ) {
+		$connection   = new Codegenie_Pulse_Connection( $this->options() );
+		$request_token = str_repeat( 'T', 64 );
+		$GLOBALS['codegenie_test']['remote_result'] = array(
+			'response' => array( 'code' => $status ),
+			'body'     => wp_json_encode( array( 'message' => 'reflected ' . $request_token ) ),
+		);
+
+		$result = $connection->exchange( 'https://pulse.example', $request_token, str_repeat( 'C', 48 ) );
+
+		$this->assertSame( 'codegenie_pulse_exchange_rejected', $result->get_error_code() );
+		$this->assertStringNotContainsString( $request_token, $result->get_error_message() );
+		$this->assertStringNotContainsString( 'reflected', $result->get_error_message() );
+		$this->assertCount( 1, $GLOBALS['codegenie_test']['remote_calls'] );
+	}
+
+	public function rejectedExchangeStatusProvider() {
+		return array(
+			'unauthorized'       => array( 401 ),
+			'forbidden'          => array( 403 ),
+			'not found'          => array( 404 ),
+			'already consumed'   => array( 409 ),
+			'expired'            => array( 410 ),
+			'invalid request'    => array( 422 ),
+			'rate limited'       => array( 429 ),
+			'platform failure'   => array( 503 ),
+		);
+	}
+
+	public function test_exchange_rejects_oversized_and_cross_origin_configuration_without_partial_state() {
+		$options    = $this->options();
+		$connection = new Codegenie_Pulse_Connection( $options );
+		$before     = get_option( Codegenie_Pulse_Options::OPTION_NAME );
+
+		$GLOBALS['codegenie_test']['remote_result'] = array(
+			'response' => array( 'code' => 200 ),
+			'body'     => str_repeat( 'x', 32769 ),
+		);
+		$large = $connection->exchange( 'https://pulse.example', str_repeat( 'R', 64 ), str_repeat( 'C', 48 ) );
+		$this->assertSame( 'codegenie_pulse_response_too_large', $large->get_error_code() );
+		$this->assertSame( $before, get_option( Codegenie_Pulse_Options::OPTION_NAME ) );
+
+		codegenie_test_reset();
+		$options    = $this->options();
+		$connection = new Codegenie_Pulse_Connection( $options );
+		$GLOBALS['codegenie_test']['remote_result'] = array(
+			'response' => array( 'code' => 200 ),
+			'body'     => wp_json_encode(
+				array(
+					'connection' => array(
+						'pulse_origin'       => 'https://other.example',
+						'site_id'            => '12345678-1234-1234-1234-123456789abc',
+						'site_url'           => 'https://wordpress.example',
+						'verification_token' => str_repeat( 'V', 32 ),
+						'dsn'                => 'https://other.example/api/ingest/errors/' . str_repeat( 'D', 64 ),
+						'capabilities'       => array( 'website_monitoring' => true, 'error_monitoring' => true ),
+					),
+				)
+			),
+		);
+		$mismatch = $connection->exchange( 'https://pulse.example', str_repeat( 'R', 64 ), str_repeat( 'C', 48 ) );
+		$this->assertSame( 'codegenie_pulse_exchange_origin_mismatch', $mismatch->get_error_code() );
+		$this->assertFalse( $options->has_platform_connection() );
 	}
 
 	public function test_exchange_handles_timeout_non_json_and_timeout_bounds_without_leaking_tokens() {
@@ -90,6 +174,33 @@ final class ConnectionAdminTest extends Codegenie_Pulse_Test_Case {
 		$diagnostics = wp_json_encode( $admin->add_debug_information( array() ) );
 		$this->assertStringNotContainsString( $options->dsn(), $diagnostics );
 		$this->assertStringNotContainsString( str_repeat( 'V', 32 ), $diagnostics );
+	}
+
+	public function test_consent_screen_input_is_validated_without_an_outbound_request() {
+		$options    = $this->options();
+		$reporter   = new Codegenie_Pulse_Reporter( new Codegenie_Pulse_Client( $options ), $options, new Codegenie_Pulse_Redactor() );
+		$connection = new Codegenie_Pulse_Connection( $options );
+		$admin      = new Codegenie_Pulse_Admin( $options, $reporter, new Codegenie_Pulse_Secret_Store(), $connection );
+		$method     = new ReflectionMethod( $admin, 'authorization_request' );
+		if ( PHP_VERSION_ID < 80100 ) {
+			$method->setAccessible( true );
+		}
+
+		$_GET = array(
+			'codegenie_pulse_authorize' => '1',
+			'request'                    => str_repeat( 'R', 64 ),
+			'challenge'                  => str_repeat( 'C', 48 ),
+			'pulse_origin'               => 'https://Pulse.Example/',
+		);
+		$result = $method->invoke( $admin );
+		$this->assertSame( 'https://pulse.example', $result['pulse_origin'] );
+		$this->assertSame( 'pulse.example', $result['pulse_host'] );
+		$this->assertCount( 0, $GLOBALS['codegenie_test']['remote_calls'] );
+
+		$_GET['request'] = 'expired';
+		$invalid = $method->invoke( $admin );
+		$this->assertSame( 'codegenie_pulse_invalid_authorization', $invalid->get_error_code() );
+		$this->assertCount( 0, $GLOBALS['codegenie_test']['remote_calls'] );
 	}
 
 	public function test_admin_actions_require_capability_and_nonce() {

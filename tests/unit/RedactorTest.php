@@ -32,8 +32,14 @@ final class RedactorTest extends Codegenie_Pulse_Test_Case {
 		$reporter->report_exception( new RuntimeException( 'secret=visible-secret user@example.invalid' ), array( 'token' => 'drop' ) );
 		$payload = json_decode( $GLOBALS['codegenie_test']['remote_calls'][0]['args']['body'], true );
 		$this->assertStringNotContainsString( 'visible-secret', $payload['message'] );
+		$this->assertLessThanOrEqual( 2000, strlen( $payload['message'] ) );
+		$this->assertIsString( $payload['exception_class'] );
+		$this->assertIsInt( $payload['line'] );
+		$this->assertIsInt( $payload['status_code'] );
+		$this->assertLessThanOrEqual( 1024, strlen( $payload['file'] ) );
+		$this->assertStringNotContainsString( '?', $payload['url'] );
 		$this->assertArrayNotHasKey( 'token', $payload['context'] );
+		$this->assertLessThanOrEqual( 7000, strlen( wp_json_encode( $payload['context'] ) ) );
 		$this->assertLessThanOrEqual( 12000, strlen( $payload['stacktrace'] ) );
 	}
 }
-

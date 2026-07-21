@@ -357,7 +357,7 @@ final class Codegenie_Pulse_Options {
 
 			return new WP_Error(
 				'codegenie_pulse_storage_failed',
-				__( 'De ontvangen configuratie kon niet volledig worden opgeslagen. Controleer de database en probeer opnieuw.', 'codegenie-pulse-connector' )
+				__( 'De ontvangen configuratie kon niet volledig worden opgeslagen. De eenmalige aanvraag kan al verwerkt zijn; controleer de database en start de koppeling opnieuw in Codegenie Pulse.', 'codegenie-pulse-connector' )
 			);
 		}
 

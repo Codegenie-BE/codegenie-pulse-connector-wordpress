@@ -118,7 +118,7 @@ final class Codegenie_Pulse_Client {
 
 		if ( 429 === $status ) {
 			$this->start_backoff( $kind, MINUTE_IN_SECONDS );
-		} elseif ( in_array( $status, array( 401, 403, 404, 410 ), true ) ) {
+		} elseif ( $status >= 400 && $status < 500 ) {
 			$this->start_backoff( $kind, 15 * MINUTE_IN_SECONDS );
 		} elseif ( $status >= 500 || 0 === $status ) {
 			$this->start_backoff( $kind, MINUTE_IN_SECONDS );

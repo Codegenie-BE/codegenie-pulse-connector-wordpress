@@ -75,6 +75,8 @@ final class OptionsSecurityTest extends Codegenie_Pulse_Test_Case {
 		$GLOBALS['codegenie_test']['update_failures'][ Codegenie_Pulse_Options::OPTION_NAME ] = 1;
 		$result = $options->provision( $configuration );
 		$this->assertSame( 'codegenie_pulse_storage_failed', $result->get_error_code() );
+		$this->assertStringContainsString( 'start de koppeling opnieuw', strtolower( $result->get_error_message() ) );
+		$this->assertStringNotContainsString( str_repeat( 'N', 64 ), $result->get_error_message() );
 		$this->assertSame( $before, get_option( Codegenie_Pulse_Options::OPTION_NAME ) );
 
 		$mutated = false;
@@ -89,6 +91,89 @@ final class OptionsSecurityTest extends Codegenie_Pulse_Test_Case {
 		$result = $options->provision( $configuration );
 		$this->assertSame( 'codegenie_pulse_storage_failed', $result->get_error_code() );
 		$this->assertSame( $before, get_option( Codegenie_Pulse_Options::OPTION_NAME ) );
+	}
+
+	public function test_starter_downgrade_removes_entitlements_and_old_dsn_without_losing_site_connection() {
+		$options = $this->configuredOptions(
+			array(
+				'connection_method'   => 'automatic',
+				'pulse_origin'        => 'https://pulse.example',
+				'pulse_site_id'       => '12345678-1234-1234-1234-123456789abc',
+				'deployment_tracking' => 1,
+			)
+		);
+		$old_dsn = $options->dsn();
+		$starter = array(
+			'pulse_origin'       => 'https://pulse.example',
+			'site_id'            => '12345678-1234-1234-1234-123456789abc',
+			'site_url'           => 'https://wordpress.example',
+			'verification_token' => str_repeat( 'S', 32 ),
+			'dsn'                => '',
+			'dashboard_url'      => 'https://pulse.example/websites/starter',
+			'plan'               => 'starter',
+			'plan_label'         => 'Starter',
+			'capabilities'       => array(
+				'website_monitoring'  => true,
+				'error_monitoring'    => false,
+				'deployment_tracking' => false,
+			),
+		);
+
+		$this->assertTrue( $options->provision( $starter ) );
+		$this->assertTrue( $options->has_platform_connection() );
+		$this->assertFalse( $options->has_stored_dsn() );
+		$this->assertSame( '', $options->dsn() );
+		$this->assertSame( Codegenie_Pulse_Options::CAPTURE_OFF, $options->capture_mode() );
+		$this->assertSame( 0, $options->get( 'deployment_tracking' ) );
+		$this->assertStringNotContainsString( $old_dsn, wp_json_encode( $options->all() ) );
+
+		$invalid_upgrade = $starter;
+		$invalid_upgrade['plan'] = 'pro';
+		$invalid_upgrade['capabilities']['error_monitoring'] = true;
+		$result = $options->provision( $invalid_upgrade );
+		$this->assertSame( 'codegenie_pulse_missing_dsn', $result->get_error_code() );
+		$this->assertSame( '', $options->dsn(), 'An upgrade must never silently reactivate the previous credential.' );
+	}
+
+	/**
+	 * @dataProvider paidPlanProvider
+	 */
+	public function test_paid_plan_and_reconnect_require_and_replace_current_dsn( $plan ) {
+		$options = $this->options();
+		$first_dsn = 'https://pulse.example/api/ingest/errors/' . str_repeat( 'P', 64 );
+		$configuration = array(
+			'pulse_origin'       => 'https://pulse.example',
+			'site_id'            => '12345678-1234-1234-1234-123456789abc',
+			'site_url'           => 'https://wordpress.example',
+			'verification_token' => str_repeat( 'V', 32 ),
+			'dsn'                => $first_dsn,
+			'dashboard_url'      => 'https://pulse.example/websites/paid',
+			'plan'               => $plan,
+			'capabilities'       => array(
+				'website_monitoring'  => true,
+				'error_monitoring'    => true,
+				'deployment_tracking' => true,
+			),
+		);
+
+		$this->assertTrue( $options->provision( $configuration ) );
+		$this->assertSame( $first_dsn, $options->dsn() );
+		$this->assertSame( 1, $options->get( 'deployment_tracking' ) );
+
+		$second_dsn = 'https://pulse.example/api/ingest/errors/' . str_repeat( 'Q', 64 );
+		$configuration['dsn'] = $second_dsn;
+		$configuration['verification_token'] = str_repeat( 'W', 32 );
+		$this->assertTrue( $options->provision( $configuration ) );
+		$this->assertSame( $second_dsn, $options->dsn() );
+		$this->assertStringNotContainsString( $first_dsn, wp_json_encode( $options->all() ) );
+		$this->assertSame( str_repeat( 'W', 32 ), $options->get( 'verification_token' ) );
+	}
+
+	public function paidPlanProvider() {
+		return array(
+			'Pro'    => array( 'pro' ),
+			'Agency' => array( 'agency' ),
+		);
 	}
 
 	public function test_existing_120_settings_keep_dsn_capture_mode_and_verification_token() {

@@ -11,6 +11,9 @@ final class ClientReporterTest extends Codegenie_Pulse_Test_Case {
 		$this->assertCount( 2, $GLOBALS['codegenie_test']['remote_calls'] );
 		foreach ( $GLOBALS['codegenie_test']['remote_calls'] as $call ) {
 			$this->assertSame( 0, $call['args']['redirection'] );
+			$this->assertSame( (string) strlen( $call['args']['body'] ), $call['args']['headers']['Content-Length'] );
+			$this->assertGreaterThanOrEqual( 1.0, $call['args']['timeout'] );
+			$this->assertLessThanOrEqual( 10.0, $call['args']['timeout'] );
 		}
 		$this->assertStringContainsString( '/api/ingest/errors/', $GLOBALS['codegenie_test']['remote_calls'][0]['url'] );
 		$this->assertStringContainsString( '/api/ingest/deployments/', $GLOBALS['codegenie_test']['remote_calls'][1]['url'] );
@@ -27,8 +30,34 @@ final class ClientReporterTest extends Codegenie_Pulse_Test_Case {
 		$this->assertCount( 2, $GLOBALS['codegenie_test']['remote_calls'] );
 	}
 
+	/**
+	 * @dataProvider successfulStatusProvider
+	 */
+	public function test_all_success_statuses_are_accepted_and_clear_backoff( $status ) {
+		$options = $this->configuredOptions();
+		$client  = new Codegenie_Pulse_Client( $options );
+		set_transient( Codegenie_Pulse_Options::BACKOFF_KEY . '_error', time() - 1, 60 );
+		$GLOBALS['codegenie_test']['remote_result'] = array( 'response' => array( 'code' => $status ), 'body' => '{}' );
+
+		$result = $client->send_error( array( 'message' => 'synthetic' ), true );
+		$this->assertTrue( $result['success'] );
+		$this->assertSame( 'accepted', $result['code'] );
+		$this->assertSame( $status, $result['http_status'] );
+		$this->assertFalse( get_transient( Codegenie_Pulse_Options::BACKOFF_KEY . '_error' ) );
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/', $options->state()['last_success_at'] );
+	}
+
+	public function successfulStatusProvider() {
+		return array(
+			'OK'         => array( 200 ),
+			'Accepted'   => array( 202 ),
+			'No content' => array( 204 ),
+			'Last 2xx'   => array( 299 ),
+		);
+	}
+
 	public function test_4xx_429_5xx_and_timeout_backoff_are_bounded_and_token_safe() {
-		$cases = array( 401 => 900, 429 => 60, 503 => 60 );
+		$cases = array( 401 => 900, 403 => 900, 404 => 900, 409 => 900, 422 => 900, 429 => 60, 503 => 60 );
 
 		foreach ( $cases as $status => $expiration ) {
 			codegenie_test_reset();

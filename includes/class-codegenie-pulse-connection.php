@@ -173,11 +173,7 @@ final class Codegenie_Pulse_Connection {
 		$data = json_decode( $body, true );
 
 		if ( $status < 200 || $status >= 300 ) {
-			$message = is_array( $data ) && isset( $data['message'] ) && is_string( $data['message'] )
-				? sanitize_text_field( $data['message'] )
-				: __( 'Codegenie Pulse heeft de koppelingsaanvraag geweigerd.', 'codegenie-pulse-connector' );
-
-			return $this->error( 'exchange_rejected', $message );
+			return $this->error( 'exchange_rejected', $this->exchange_error_message( $status ) );
 		}
 
 		if ( ! is_array( $data ) || ! isset( $data['connection'] ) || ! is_array( $data['connection'] ) ) {
@@ -185,7 +181,12 @@ final class Codegenie_Pulse_Connection {
 		}
 
 		$connection = $data['connection'];
-		$provision  = $this->options->provision( $connection );
+
+		if ( ! isset( $connection['pulse_origin'] ) || ! is_string( $connection['pulse_origin'] ) || ! $this->same_origin( $connection['pulse_origin'], $pulse_origin ) ) {
+			return $this->error( 'exchange_origin_mismatch', __( 'De ontvangen configuratie hoort niet bij de gekozen Codegenie Pulse-installatie. Start de koppeling opnieuw.', 'codegenie-pulse-connector' ) );
+		}
+
+		$provision = $this->options->provision( $connection );
 
 		if ( is_wp_error( $provision ) ) {
 			return $provision;
@@ -202,10 +203,35 @@ final class Codegenie_Pulse_Connection {
 		return array(
 			'success'       => true,
 			'dashboard_url' => $dashboard_url,
-			'message'       => isset( $data['message'] ) && is_string( $data['message'] )
-				? sanitize_text_field( $data['message'] )
-				: __( 'WordPress is gekoppeld met Codegenie Pulse.', 'codegenie-pulse-connector' ),
+			'message'       => __( 'WordPress is gekoppeld met Codegenie Pulse.', 'codegenie-pulse-connector' ),
 		);
+	}
+
+	/**
+	 * Return a local, token-safe message for a rejected one-time exchange.
+	 *
+	 * Remote response text is deliberately not surfaced because it can reflect
+	 * the request token or other one-time authorization material.
+	 *
+	 * @param int $status HTTP status.
+	 * @return string
+	 */
+	private function exchange_error_message( $status ) {
+		switch ( (int) $status ) {
+			case 401:
+			case 403:
+			case 404:
+			case 409:
+			case 410:
+			case 422:
+				return __( 'De eenmalige koppelingsaanvraag is ongeldig, verlopen of al gebruikt. Start de koppeling opnieuw in Codegenie Pulse.', 'codegenie-pulse-connector' );
+			case 429:
+				return __( 'Codegenie Pulse verwerkt tijdelijk te veel aanvragen. Wacht even en start de koppeling daarna opnieuw.', 'codegenie-pulse-connector' );
+			default:
+				return (int) $status >= 500
+					? __( 'Codegenie Pulse is tijdelijk niet beschikbaar. Probeer de koppeling later opnieuw.', 'codegenie-pulse-connector' )
+					: __( 'Codegenie Pulse heeft de koppelingsaanvraag geweigerd. Start de koppeling opnieuw.', 'codegenie-pulse-connector' );
+		}
 	}
 
 	/**
