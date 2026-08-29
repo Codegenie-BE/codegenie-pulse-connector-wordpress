@@ -7,7 +7,7 @@ final class DeploymentUninstallTest extends Codegenie_Pulse_Test_Case {
 		exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( dirname( __DIR__ ) . '/fixtures/plugin-activation-runner.php' ) . ' 2>&1', $output, $status );
 		$this->assertSame( 0, $status, implode( "\n", $output ) );
 		$result = json_decode( implode( "\n", $output ), true );
-		$this->assertSame( '1.2.1', $result['version'] );
+		$this->assertSame( '1.2.2', $result['version'] );
 		$this->assertSame( 'no', $result['settings_autoload'] );
 		$this->assertSame( 'no', $result['state_autoload'] );
 	}
