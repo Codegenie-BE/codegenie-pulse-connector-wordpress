@@ -28,13 +28,18 @@ if [[ ! -d "$WP_CORE_DIR/wp-admin" ]]; then
 	rm -f "$tmp_archive"
 fi
 
-if [[ ! -d "$WP_TESTS_DIR/includes" ]]; then
+if [[ ! -d "$WP_TESTS_DIR/includes" || ! -d "$WP_TESTS_DIR/data" || ! -f "$WP_TESTS_DIR/wp-tests-config-sample.php" ]]; then
+	tmp_develop_archive="$(mktemp)"
+	tmp_develop_dir="$(mktemp -d)"
+	download "https://github.com/WordPress/wordpress-develop/archive/refs/tags/${WP_VERSION}.tar.gz" "$tmp_develop_archive"
+	tar --strip-components=1 -xzf "$tmp_develop_archive" -C "$tmp_develop_dir"
 	mkdir -p "$WP_TESTS_DIR"
-	svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_VERSION}/tests/phpunit/includes/" "$WP_TESTS_DIR/includes"
-	svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_VERSION}/tests/phpunit/data/" "$WP_TESTS_DIR/data"
+	rm -rf "$WP_TESTS_DIR/includes" "$WP_TESTS_DIR/data"
+	cp -R "$tmp_develop_dir/tests/phpunit/includes" "$WP_TESTS_DIR/includes"
+	cp -R "$tmp_develop_dir/tests/phpunit/data" "$WP_TESTS_DIR/data"
+	cp "$tmp_develop_dir/wp-tests-config-sample.php" "$WP_TESTS_DIR/wp-tests-config-sample.php"
+	rm -rf "$tmp_develop_archive" "$tmp_develop_dir"
 fi
-
-svn export --quiet --force "https://develop.svn.wordpress.org/tags/${WP_VERSION}/wp-tests-config-sample.php" "$WP_TESTS_DIR/wp-tests-config-sample.php"
 
 sed \
 	-e "s/youremptytestdbnamehere/${DB_NAME}/" \
