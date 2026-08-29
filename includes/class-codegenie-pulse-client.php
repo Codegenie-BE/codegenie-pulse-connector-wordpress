@@ -116,7 +116,7 @@ final class Codegenie_Pulse_Client {
 			return $this->record_success( $kind, $status );
 		}
 
-		if ( 429 === $status ) {
+		if ( in_array( $status, array( 408, 425, 429 ), true ) ) {
 			$this->start_backoff( $kind, MINUTE_IN_SECONDS );
 		} elseif ( in_array( $status, array( 401, 403, 404, 410 ), true ) ) {
 			$this->start_backoff( $kind, 15 * MINUTE_IN_SECONDS );
@@ -236,6 +236,8 @@ final class Codegenie_Pulse_Client {
 				return __( 'Het account of plan laat deze koppeling niet toe.', 'codegenie-pulse-connector' );
 			case 404:
 				return __( 'Het ingestie-endpoint of de token werd niet gevonden.', 'codegenie-pulse-connector' );
+			case 408:
+				return __( 'De aanvraag is tijdelijk verlopen. De connector probeert later opnieuw.', 'codegenie-pulse-connector' );
 			case 410:
 				return __( 'De gekoppelde website of foutbron is gearchiveerd.', 'codegenie-pulse-connector' );
 			case 411:
@@ -244,6 +246,8 @@ final class Codegenie_Pulse_Client {
 				return __( 'De gebeurtenis is groter dan de toegestane platformlimiet.', 'codegenie-pulse-connector' );
 			case 422:
 				return __( 'Het platform heeft de gebeurtenis inhoudelijk geweigerd.', 'codegenie-pulse-connector' );
+			case 425:
+				return __( 'Het platform heeft de aanvraag tijdelijk uitgesteld. De connector probeert later opnieuw.', 'codegenie-pulse-connector' );
 			case 429:
 				return __( 'De ingestie- of maandlimiet is bereikt. De connector probeert later opnieuw.', 'codegenie-pulse-connector' );
 			default:
