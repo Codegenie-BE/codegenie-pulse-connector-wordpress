@@ -4,7 +4,7 @@ Tags: monitoring, error monitoring, uptime, fatal errors, deployment tracking
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.2.1
+Stable tag: 1.2.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,7 +71,7 @@ The DSN can no longer be decrypted. Paste the DSN into the connector settings ag
 
 = Are events retried? =
 
-The plugin has no queue and does not automatically retry events. It applies a short local backoff after network, rate-limit, or token failures to prevent an error storm.
+The plugin has no queue and does not automatically retry events. It applies a short local backoff after network, temporary HTTP, rate-limit, or token failures to prevent an error storm.
 
 = Which PHP error capture mode should I use? =
 
@@ -95,6 +95,10 @@ The public discovery endpoint returns only connector information and a one-time 
 
 == Upgrade Notice ==
 
+= 1.2.2 =
+
+Adds bounded local backoff for temporary HTTP 408 and 425 responses so error bursts do not repeatedly hit an endpoint that has asked the connector to wait.
+
 = 1.2.1 =
 
 Clarifies the actual data transfer and makes one-time provisioning and multisite network activation more fault tolerant without changing the connector protocol.
@@ -108,6 +112,12 @@ Adds a secure Pulse-first WordPress connection that configures verification, err
 Adds safe optional capture of PHP warnings, notices, and deprecated messages. Existing 1.0.0 settings are retained automatically as Production or Off.
 
 == Changelog ==
+
+= 1.2.2 =
+
+* Treats HTTP 408 Request Timeout and HTTP 425 Too Early as temporary delivery failures.
+* Applies the existing one-minute local backoff after those responses.
+* Adds regression coverage proving that follow-up events are suppressed during the bounded backoff window.
 
 = 1.2.1 =
 
