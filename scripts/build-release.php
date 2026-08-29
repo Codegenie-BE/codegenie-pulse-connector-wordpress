@@ -7,7 +7,7 @@ require_once __DIR__ . '/lib/wordpress-org-asset-manifest.php';
 
 $root        = dirname( __DIR__ );
 $allow_dirty = in_array( '--allow-dirty', $argv, true );
-$version     = '1.2.1';
+$version     = '1.2.2';
 $slug        = 'codegenie-pulse-connector';
 $source_slug = 'codegenie-pulse-connector-wordpress-' . $version . '-source';
 $dist        = $root . '/dist';
