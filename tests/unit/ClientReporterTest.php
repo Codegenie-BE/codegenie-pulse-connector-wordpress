@@ -96,7 +96,13 @@ final class ClientReporterTest extends Codegenie_Pulse_Test_Case {
 	public function test_removed_strict_level_is_not_registered_on_php_84_or_newer() {
 		$options = $this->configuredOptions( array( 'error_capture_mode' => Codegenie_Pulse_Options::CAPTURE_DEBUG ) );
 		$reporter = new Codegenie_Pulse_Reporter( new Codegenie_Pulse_Client( $options ), $options, new Codegenie_Pulse_Redactor() );
-		$reporter->capture_php_error( 2048, 'legacy strict level', __FILE__, 1 );
+		$previous_error_reporting = error_reporting( E_ALL );
+
+		try {
+			$reporter->capture_php_error( 2048, 'legacy strict level', __FILE__, 1 );
+		} finally {
+			error_reporting( $previous_error_reporting );
+		}
 
 		if ( PHP_VERSION_ID >= 80400 ) {
 			$this->assertCount( 0, $GLOBALS['codegenie_test']['remote_calls'] );

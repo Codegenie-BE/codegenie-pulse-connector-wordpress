@@ -95,19 +95,19 @@ jobs:
         run: php scripts/build-release.php
       - name: Test ZIP integrity
         run: |
-          unzip -t dist/codegenie-pulse-connector-1.2.1.zip
-          unzip -t dist/codegenie-pulse-connector-wordpress-1.2.1-source.zip
+          unzip -t dist/codegenie-pulse-connector-1.2.2.zip
+          unzip -t dist/codegenie-pulse-connector-wordpress-1.2.2-source.zip
       - name: Verify reproducibility
         run: |
-          first_install="$(sha256sum dist/codegenie-pulse-connector-1.2.1.zip | cut -d ' ' -f 1)"
-          first_source="$(sha256sum dist/codegenie-pulse-connector-wordpress-1.2.1-source.zip | cut -d ' ' -f 1)"
+          first_install="$(sha256sum dist/codegenie-pulse-connector-1.2.2.zip | cut -d ' ' -f 1)"
+          first_source="$(sha256sum dist/codegenie-pulse-connector-wordpress-1.2.2-source.zip | cut -d ' ' -f 1)"
           php scripts/build-release.php
-          second_install="$(sha256sum dist/codegenie-pulse-connector-1.2.1.zip | cut -d ' ' -f 1)"
-          second_source="$(sha256sum dist/codegenie-pulse-connector-wordpress-1.2.1-source.zip | cut -d ' ' -f 1)"
+          second_install="$(sha256sum dist/codegenie-pulse-connector-1.2.2.zip | cut -d ' ' -f 1)"
+          second_source="$(sha256sum dist/codegenie-pulse-connector-wordpress-1.2.2-source.zip | cut -d ' ' -f 1)"
           test "$first_install" = "$second_install"
           test "$first_source" = "$second_source"
       - name: Extract built package for Plugin Check
-        run: unzip -q dist/codegenie-pulse-connector-1.2.1.zip -d plugin-build
+        run: unzip -q dist/codegenie-pulse-connector-1.2.2.zip -d plugin-build
       - name: Run official Plugin Check against built package
         uses: wordpress/plugin-check-action@v1
         with:
@@ -118,13 +118,89 @@ jobs:
       - name: Upload reviewed installation artifact
         uses: actions/upload-artifact@v4
         with:
-          name: codegenie-pulse-connector-1.2.1-release-candidate
+          name: codegenie-pulse-connector-1.2.2-release-candidate
           path: |
-            dist/codegenie-pulse-connector-1.2.1.zip
-            dist/codegenie-pulse-connector-1.2.1.files.txt
-            dist/codegenie-pulse-connector-1.2.1.sha256
-            dist/codegenie-pulse-connector-wordpress-1.2.1-source.zip
-            dist/codegenie-pulse-connector-wordpress-1.2.1-source.files.txt
-            dist/codegenie-pulse-connector-wordpress-1.2.1-source.sha256
+            dist/codegenie-pulse-connector-1.2.2.zip
+            dist/codegenie-pulse-connector-1.2.2.files.txt
+            dist/codegenie-pulse-connector-1.2.2.sha256
+            dist/codegenie-pulse-connector-wordpress-1.2.2-source.zip
+            dist/codegenie-pulse-connector-wordpress-1.2.2-source.files.txt
+            dist/codegenie-pulse-connector-wordpress-1.2.2-source.sha256
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Publish GitHub release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: zip
+          coverage: none
+          tools: none
+      - name: Resolve release identity
+        id: release
+        env:
+          VERSION: '1.2.2'
+        run: |
+          set -euo pipefail
+          php scripts/check-release-version.php "$VERSION"
+          tag="v$VERSION"
+          git fetch --tags --force
+
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            tagged_commit="$(git rev-list --max-count=1 "$tag")"
+
+            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+              echo "Version $tag is already released at $tagged_commit; no new release is required for this commit."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" "$GITHUB_SHA" -m "$tag"
+            git push origin "$tag"
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+      - name: Rebuild reviewed release artifacts
+        if: steps.release.outputs.publish == 'true'
+        run: php scripts/build-release.php
+      - name: Create or repair GitHub release
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          assets=(
+            dist/codegenie-pulse-connector-1.2.2.zip
+            dist/codegenie-pulse-connector-1.2.2.files.txt
+            dist/codegenie-pulse-connector-1.2.2.sha256
+            dist/codegenie-pulse-connector-wordpress-1.2.2-source.zip
+            dist/codegenie-pulse-connector-wordpress-1.2.2-source.files.txt
+            dist/codegenie-pulse-connector-wordpress-1.2.2-source.sha256
+          )
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            exit 0
+          fi
+
+          gh release create "$TAG" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TAG" \
+            --title "$TAG" \
+            --notes-file docs/releases/1.2.2.md

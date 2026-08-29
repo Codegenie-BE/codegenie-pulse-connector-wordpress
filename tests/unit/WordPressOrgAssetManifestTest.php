@@ -18,12 +18,12 @@ final class WordPressOrgAssetManifestTest extends Codegenie_Pulse_Test_Case {
 		$manifest = Codegenie_WordPress_Org_Asset_Manifest::from_directory(
 			$root . '/wordpress-org/assets/manifest.json',
 			$root . '/wordpress-org/assets',
-			'1.2.1'
+			'1.2.2'
 		);
 
 		$this->assertSame( 1, $manifest['schema_version'] );
 		$this->assertSame( 'codegenie-pulse-connector', $manifest['plugin_slug'] );
-		$this->assertSame( '1.2.1', $manifest['plugin_version'] );
+		$this->assertSame( '1.2.2', $manifest['plugin_version'] );
 		$this->assertCount( 7, $manifest['assets'] );
 		$this->assertCount( 7, $manifest['publication_blockers'] );
 
@@ -120,18 +120,18 @@ final class WordPressOrgAssetManifestTest extends Codegenie_Pulse_Test_Case {
 		$from_directory = Codegenie_WordPress_Org_Asset_Manifest::from_directory(
 			$directory . '/manifest.json',
 			$directory,
-			'1.2.1'
+			'1.2.2'
 		);
 
 		$zip_path = $directory . '/source.zip';
 		$zip      = new ZipArchive();
 		$this->assertTrue( $zip->open( $zip_path, ZipArchive::CREATE | ZipArchive::OVERWRITE ) );
-		$root = 'codegenie-pulse-connector-wordpress-1.2.1-source/';
+		$root = 'codegenie-pulse-connector-wordpress-1.2.2-source/';
 		$zip->addFromString( $root . 'wordpress-org/assets/manifest.json', $manifest_json );
 		$zip->close();
 
 		$this->assertTrue( $zip->open( $zip_path, ZipArchive::CHECKCONS ) );
-		$from_zip = Codegenie_WordPress_Org_Asset_Manifest::from_zip( $zip, $root, '1.2.1' );
+		$from_zip = Codegenie_WordPress_Org_Asset_Manifest::from_zip( $zip, $root, '1.2.2' );
 		$zip->close();
 
 		$this->assertSame( $from_directory, $from_zip );
@@ -153,7 +153,7 @@ final class WordPressOrgAssetManifestTest extends Codegenie_Pulse_Test_Case {
 			};
 		}
 
-		return Codegenie_WordPress_Org_Asset_Manifest::validate( json_encode( $data ), $asset_reader, '1.2.1' );
+		return Codegenie_WordPress_Org_Asset_Manifest::validate( json_encode( $data ), $asset_reader, '1.2.2' );
 	}
 
 	private function manifestData() {
